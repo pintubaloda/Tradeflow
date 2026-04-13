@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { reportAPI } from '../services/api';
-import { Button, Card, Input, Spinner, StatCard, Table } from '../components/common';
-import { formatCurrency, formatDate, today, txnTypeLabel } from '../utils/helpers';
+import { Button, Card, Input, Spinner, StatCard, Table, Modal, Badge, Toast, useToast, Avatar } from '../components/common';
+import { formatCurrency, formatDate, today, txnTypeLabel, paymentModeLabel } from '../utils/helpers';
 
 const isoMinusDays = (days) => {
   const d = new Date();
@@ -14,6 +14,7 @@ const isoMinusDays = (days) => {
 export default function Reports() {
   const { currentFirm, hasModule, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
 
   const reportsEnabled = hasModule('reports');
   const vendorEnabled = hasModule('vendor_ledger');
@@ -27,7 +28,22 @@ export default function Reports() {
   const [vendorTxns, setVendorTxns] = useState([]);
   const [collTxns, setCollTxns] = useState([]);
 
+  const [retailerLedgerOpen, setRetailerLedgerOpen] = useState(false);
+  const [ledgerRetailer, setLedgerRetailer] = useState(null);
+  const [ledgerData, setLedgerData] = useState(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerLoadError, setLedgerLoadError] = useState(false);
+  const [ledgerFrom, setLedgerFrom] = useState(() => isoMinusDays(30));
+  const [ledgerTo, setLedgerTo] = useState(() => today());
+
   const params = useMemo(() => ({ from, to }), [from, to]);
+
+  useEffect(() => {
+    if (!retailerLedgerOpen) {
+      setLedgerFrom(from);
+      setLedgerTo(to);
+    }
+  }, [from, to, retailerLedgerOpen]);
 
   const load = useCallback(async () => {
     if (!currentFirm || !reportsEnabled) return;
@@ -51,6 +67,39 @@ export default function Reports() {
   }, [currentFirm, reportsEnabled, vendorEnabled, collectionEnabled, params]);
 
   useEffect(() => { load(); }, [load]);
+
+  const openRetailerLedger = async (retailer) => {
+    if (!currentFirm || !retailer?.id) return;
+    setLedgerRetailer(retailer);
+    setRetailerLedgerOpen(true);
+    setLedgerData(null);
+    setLedgerLoading(true);
+    setLedgerLoadError(false);
+    try {
+      const res = await reportAPI.retailerLedger(currentFirm.id, retailer.id, { from: ledgerFrom, to: ledgerTo });
+      setLedgerData(res.data);
+    } catch (err) {
+      setLedgerLoadError(true);
+      toast.error(err.response?.data?.error || 'Failed to load retailer ledger');
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
+
+  const reloadRetailerLedger = async () => {
+    if (!currentFirm || !ledgerRetailer?.id) return;
+    setLedgerLoading(true);
+    setLedgerLoadError(false);
+    try {
+      const res = await reportAPI.retailerLedger(currentFirm.id, ledgerRetailer.id, { from: ledgerFrom, to: ledgerTo });
+      setLedgerData(res.data);
+    } catch (err) {
+      setLedgerLoadError(true);
+      toast.error(err.response?.data?.error || 'Failed to load retailer ledger');
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
 
   if (!currentFirm) {
     return (
@@ -183,7 +232,15 @@ export default function Reports() {
                   <p className="font-semibold text-slate-800 text-sm">Top Retailers (outstanding)</p>
                   <span className="text-xs text-slate-400">Current</span>
                 </div>
-                <Table columns={topRetailersCols} rows={summary?.topRetailers || []} empty="No retailers found" />
+                <Table
+                  columns={topRetailersCols}
+                  rows={summary?.topRetailers || []}
+                  empty="No retailers found"
+                  onRowClick={(r) => openRetailerLedger(r)}
+                />
+                <div className="px-5 pb-4">
+                  <p className="text-xs text-slate-400 mt-3">Tip: Click a retailer to open ledger.</p>
+                </div>
               </Card>
             )}
 
@@ -219,7 +276,63 @@ export default function Reports() {
           </div>
         </>
       )}
+
+      <Modal
+        open={retailerLedgerOpen}
+        onClose={() => { setRetailerLedgerOpen(false); setLedgerRetailer(null); setLedgerData(null); }}
+        title={`Retailer Ledger — ${ledgerRetailer?.name || ''}`}
+        size="xl"
+        footer={<Button variant="default" onClick={() => setRetailerLedgerOpen(false)}>Close</Button>}
+      >
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            {ledgerRetailer?.area && <Badge color="gray">{ledgerRetailer.area}</Badge>}
+            <span className="text-xs text-slate-400">{ledgerFrom} → {ledgerTo}</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          <Input type="date" value={ledgerFrom} onChange={e => setLedgerFrom(e.target.value)} wrapperClass="flex-1" label="From" />
+          <Input type="date" value={ledgerTo} onChange={e => setLedgerTo(e.target.value)} wrapperClass="flex-1" label="To" />
+          <Button variant="default" onClick={reloadRetailerLedger} disabled={ledgerLoading}>Filter</Button>
+        </div>
+
+        {ledgerData?.summary && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <StatCard label="Current outstanding" value={formatCurrency(ledgerData.retailer?.current_outstanding || 0)} color="red" icon="📋" />
+            <StatCard label="Credit (range)" value={formatCurrency(ledgerData.summary.total_credit || 0)} color="amber" icon="➕" />
+            <StatCard label="Collected (range)" value={formatCurrency(ledgerData.summary.total_collected || 0)} color="green" icon="💰" />
+            <StatCard label="Transactions" value={ledgerData.summary.txn_count || 0} icon="🧾" />
+          </div>
+        )}
+
+        {ledgerLoading ? (
+          <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+        ) : ledgerLoadError ? (
+          <div className="flex flex-col items-center py-16 gap-3">
+            <p className="text-slate-500 text-sm">Failed to load retailer ledger.</p>
+            <Button size="sm" variant="default" onClick={reloadRetailerLedger}>Retry</Button>
+          </div>
+        ) : (
+          <Table
+            columns={[
+              { key: 'txn_date', label: 'Date', render: (v) => formatDate(v) },
+              { key: 'collector_name', label: 'Collected by', render: (v) => (
+                <div className="flex items-center gap-1.5"><Avatar name={v} size="sm" /><span>{v}</span></div>
+              )},
+              { key: 'credit_amount', label: 'Credit', render: (v) => (parseFloat(v) || 0) > 0 ? <span className="text-amber-600 tabular-nums">{formatCurrency(v)}</span> : '—' },
+              { key: 'collected_amount', label: 'Collected', render: (v) => (parseFloat(v) || 0) > 0 ? <span className="text-emerald-600 font-semibold tabular-nums">{formatCurrency(v)}</span> : '—' },
+              { key: 'outstanding_after', label: 'Balance', render: (v) => <span className={`tabular-nums font-medium ${parseFloat(v) > 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatCurrency(v)}</span> },
+              { key: 'payment_mode', label: 'Mode', render: (v) => <Badge color="gray">{paymentModeLabel(v) || '—'}</Badge> },
+              { key: 'notes', label: 'Notes', render: (v) => <span className="text-slate-400 text-xs">{v || '—'}</span> },
+            ]}
+            rows={ledgerData?.transactions || []}
+            empty="No transactions for this retailer"
+          />
+        )}
+
+        <Toast toasts={toast.toasts} remove={toast.remove} />
+      </Modal>
     </div>
   );
 }
-

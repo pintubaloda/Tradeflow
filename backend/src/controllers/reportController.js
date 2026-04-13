@@ -178,6 +178,49 @@ const getSummary = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// GET /api/firms/:firmId/reports/retailers/:retailerId/ledger?from=YYYY-MM-DD&to=YYYY-MM-DD
+const getRetailerLedger = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
+
+    const range = parseRange(req);
+    const retailerId = req.params.retailerId;
+
+    const retailer = await query(
+      `SELECT * FROM retailers WHERE firm_id=$1 AND id=$2 AND is_active=true`,
+      [req.firmId, retailerId]
+    );
+    if (!retailer.rows.length) return res.status(404).json({ error: 'Retailer not found' });
+
+    const txns = await query(
+      `SELECT ct.*, u.full_name AS collector_name
+       FROM collection_transactions ct
+       JOIN users u ON u.id = ct.collected_by
+       WHERE ct.firm_id=$1 AND ct.retailer_id=$2 AND ct.txn_date BETWEEN $3 AND $4
+       ORDER BY ct.txn_date ASC, ct.created_at ASC`,
+      [req.firmId, retailerId, range.from, range.to]
+    );
+
+    const summary = await query(
+      `SELECT
+        COALESCE(SUM(credit_amount),0) AS total_credit,
+        COALESCE(SUM(collected_amount),0) AS total_collected,
+        COUNT(*) AS txn_count
+       FROM collection_transactions
+       WHERE firm_id=$1 AND retailer_id=$2 AND txn_date BETWEEN $3 AND $4`,
+      [req.firmId, retailerId, range.from, range.to]
+    );
+
+    res.json({
+      range,
+      retailer: retailer.rows[0],
+      transactions: txns.rows,
+      summary: summary.rows[0],
+    });
+  } catch (err) { next(err); }
+};
+
 // GET /api/firms/:firmId/reports/vendor-transactions
 const listVendorTransactions = async (req, res, next) => {
   try {
@@ -280,4 +323,4 @@ const listCollectionTransactions = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { getSummary, listVendorTransactions, listCollectionTransactions };
+module.exports = { getSummary, getRetailerLedger, listVendorTransactions, listCollectionTransactions };

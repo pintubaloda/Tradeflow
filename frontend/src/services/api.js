@@ -121,4 +121,5 @@ export const reportAPI = {
   summary: (firmId, p) => api.get(`/firms/${firmId}/reports/summary`, { params: p }),
   vendorTransactions: (firmId, p) => api.get(`/firms/${firmId}/reports/vendor-transactions`, { params: p }),
   collections: (firmId, p) => api.get(`/firms/${firmId}/reports/collections`, { params: p }),
+  retailerLedger: (firmId, retailerId, p) => api.get(`/firms/${firmId}/reports/retailers/${retailerId}/ledger`, { params: p }),
 };

@@ -174,4 +174,16 @@ router.get('/firms/:firmId/reports/collections',
   reportCtrl.listCollectionTransactions
 );
 
+router.get('/firms/:firmId/reports/retailers/:retailerId/ledger',
+  authenticate,
+  requireFirmAccess,
+  requireRole('tenant_admin', 'firm_admin', 'accountant', 'viewer'),
+  requireModule('reports'),
+  requireModule('market_collection'),
+  param('retailerId').isUUID(),
+  query('from').optional().isISO8601({ strict: true, strictSeparator: true }),
+  query('to').optional().isISO8601({ strict: true, strictSeparator: true }),
+  reportCtrl.getRetailerLedger
+);
+
 module.exports = router;
