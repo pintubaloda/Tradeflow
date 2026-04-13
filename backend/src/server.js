@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
 const wsManager = require('./utils/wsManager');
+const seedDemo = require('./utils/seedDemo');
 
 // ── STARTUP VALIDATION ────────────────────────────────────────
 // FIX SECURITY: Fail fast if critical env vars are missing
@@ -97,5 +98,8 @@ wsManager.init(server);
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`TradeFlow API running on :${PORT} [${isProd ? 'production' : 'development'}]`));
+
+// Optional: create demo tenant/users/data (idempotent; controlled by env flag).
+seedDemo().catch((e) => console.error('[demo-seed] failed:', e.message));
 
 module.exports = { app, server };

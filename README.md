@@ -68,6 +68,8 @@ psql "$DATABASE_URL" -f backend/src/config/schema.sql
   - `NODE_ENV` = `production`
   - `FRONTEND_URL` = `https://<your-frontend-domain>`
   - (demo only) `DISABLE_PAYMENT_GATE` = `true` (lets you activate paid modules without `paymentConfirmed`)
+  - (demo) `DEMO_SEED` = `true` (creates demo tenant/users/data on first start)
+  - (demo) `DEMO_PASSWORD` = `Tradeflow@12345` (or set your own)
 
 ### 4) Deploy Frontend service
 - **Root Directory**: `frontend`
@@ -79,6 +81,15 @@ psql "$DATABASE_URL" -f backend/src/config/schema.sql
 Notes:
 - Frontend reads API/WS URLs from `runtime-config.js` at runtime (no rebuild needed for URL changes).
 - In `NODE_ENV=production`, paid modules require `paymentConfirmed=true` (payment gateway integration). In development, the payment gate is bypassed for local testing.
+
+### Demo login details (when `DEMO_SEED=true`)
+Password for all users: `Tradeflow@12345` (or your `DEMO_PASSWORD`)
+
+- Tenant Admin: `admin@tradeflow.local`
+- Firm Admin: `firmadmin@tradeflow.local`
+- Accountant: `accountant@tradeflow.local`
+- Viewer: `viewer@tradeflow.local`
+- Collection Boy: `collector@tradeflow.local`
 
 ## Manual Setup
 
