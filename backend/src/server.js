@@ -34,8 +34,9 @@ if (isProd) app.set('trust proxy', 1);
 app.use(helmet());
 
 // FIX SECURITY: Never allow wildcard CORS in production
+const normalizeOrigin = (o) => (o || '').trim().replace(/\/+$/, '');
 const allowedOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
+  ? process.env.FRONTEND_URL.split(',').map(normalizeOrigin).filter(Boolean)
   : (isProd ? [] : ['http://localhost:3000']);
 
 if (isProd && allowedOrigins.length === 0) {

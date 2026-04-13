@@ -66,7 +66,7 @@ psql "$DATABASE_URL" -f backend/src/config/schema.sql
   - `DATABASE_URL` = Railway Postgres `DATABASE_URL`
   - `JWT_SECRET` = 32+ chars random
   - `NODE_ENV` = `production`
-  - `FRONTEND_URL` = `https://<your-frontend-domain>`
+  - `FRONTEND_URL` = `https://<your-frontend-domain>` (must match browser Origin exactly; no trailing slash)
   - (demo only) `DISABLE_PAYMENT_GATE` = `true` (lets you activate paid modules without `paymentConfirmed`)
   - (demo) `DEMO_SEED` = `true` (creates demo tenant/users/data on first start)
   - (demo) `DEMO_PASSWORD` = `Tradeflow@12345` (or set your own)
@@ -76,7 +76,8 @@ psql "$DATABASE_URL" -f backend/src/config/schema.sql
 - **Root Directory**: `frontend`
 - **Variables**:
   - `TRADEFLOW_BACKEND_ORIGIN` = `https://<your-backend-domain>`
-  - (optional) `TRADEFLOW_API_URL` = `/api` (default)
+  - (recommended) keep `TRADEFLOW_API_URL` unset (defaults to `/api` via nginx proxy; avoids CORS entirely)
+  - (optional) `TRADEFLOW_API_URL` = `https://<your-backend-domain>/api` (cross-origin; requires correct `FRONTEND_URL`)
   - (optional) `TRADEFLOW_WS_URL` = `wss://<your-frontend-domain>/ws` (if not set, it auto-detects ws/wss)
 
 Notes:
