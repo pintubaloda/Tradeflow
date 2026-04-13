@@ -89,6 +89,7 @@ export const vendorAPI = {
   update: (firmId, id, d) => api.put(`/firms/${firmId}/vendors/${id}`, d),
   getLedger: (firmId, vendorId, p) => api.get(`/firms/${firmId}/vendors/${vendorId}/transactions`, { params: p }),
   addTxn: (firmId, vendorId, d) => api.post(`/firms/${firmId}/vendors/${vendorId}/transactions`, d),
+  updateTxn: (firmId, vendorId, txnId, d) => api.put(`/firms/${firmId}/vendors/${vendorId}/transactions/${txnId}`, d),
   deleteTxn: (firmId, vendorId, txnId) => api.delete(`/firms/${firmId}/vendors/${vendorId}/transactions/${txnId}`),
 };
 

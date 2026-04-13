@@ -132,11 +132,101 @@ function TxnFormModal({ open, onClose, onSave, vendor }) {
   );
 }
 
+function TxnEditModal({ open, onClose, onSave, vendor, initial }) {
+  const [form, setForm] = useState({ txnDate: today(), txnType: 'advance', amount: '', mnpAmount: '0', referenceNo: '', notes: '' });
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    if (!initial) return;
+    setForm({
+      txnDate: (initial.txn_date || '').slice(0, 10),
+      txnType: initial.txn_type,
+      amount: String(initial.amount ?? ''),
+      mnpAmount: String(initial.mnp_amount ?? 0),
+      referenceNo: initial.reference_no || '',
+      notes: initial.notes || '',
+    });
+    setErrors({});
+    setConfirmOpen(false);
+    setLoading(false);
+  }, [open, initial]);
+
+  const f = (k) => ({ value: form[k], onChange: e => setForm(p => ({ ...p, [k]: e.target.value })), error: errors[k] });
+
+  const validate = () => {
+    const errs = {};
+    if (!form.txnDate) errs.txnDate = 'Date required';
+    if (form.amount === '' || parseFloat(form.amount) < 0) errs.amount = 'Amount must be >= 0';
+    if (parseFloat(form.mnpAmount || 0) < 0) errs.mnpAmount = 'MNP must be >= 0';
+    return errs;
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setConfirmOpen(true);
+  };
+
+  const confirm = async () => {
+    setLoading(true);
+    try {
+      await onSave(form);
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update transaction');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <Modal open={open} onClose={onClose} title={`Edit Transaction — ${vendor?.name || ''}`} size="md"
+        footer={<>
+          <Button variant="default" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={loading} onClick={submit}>Save changes</Button>
+        </>}>
+        <form onSubmit={submit} className="space-y-3">
+          <Input label="Date *" type="date" {...f('txnDate')} />
+          <Select label="Transaction type" {...f('txnType')}>
+            {TXN_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Amount (₹)" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('amount')} />
+            <Input label="MNP (₹)" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('mnpAmount')} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Reference no." placeholder="INV-001" {...f('referenceNo')} />
+            <Input label="Notes" placeholder="Optional" {...f('notes')} />
+          </div>
+        </form>
+        <Toast toasts={toast.toasts} remove={toast.remove} />
+      </Modal>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirm}
+        title="Confirm update"
+        message="Update this transaction? This will change the latest ledger balance."
+        confirmLabel="Update"
+      />
+    </>
+  );
+}
+
 function LedgerModal({ open, onClose, vendor, firmId }) {
+  const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [txnModal, setTxnModal] = useState(false);
+  const [editTxn, setEditTxn] = useState(null);
+  const [deleteTxn, setDeleteTxn] = useState(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const toast = useToast();
@@ -166,6 +256,37 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
     load();
   };
 
+  const latestTxnId = (data?.transactions || []).length
+    ? data.transactions[data.transactions.length - 1].id
+    : null;
+
+  const handleUpdateTxn = async (form) => {
+    if (!editTxn) return;
+    await vendorAPI.updateTxn(firmId, vendor.id, editTxn.id, {
+      txnDate: form.txnDate,
+      txnType: form.txnType,
+      amount: parseFloat(form.amount) || 0,
+      mnpAmount: parseFloat(form.mnpAmount) || 0,
+      referenceNo: form.referenceNo,
+      notes: form.notes,
+    });
+    toast.success('Transaction updated');
+    setEditTxn(null);
+    load();
+  };
+
+  const handleDeleteTxn = async () => {
+    if (!deleteTxn) return;
+    try {
+      await vendorAPI.deleteTxn(firmId, vendor.id, deleteTxn.id);
+      toast.success('Transaction deleted');
+      setDeleteTxn(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete transaction');
+    }
+  };
+
   const ledgerCols = [
     { key: 'txn_date', label: 'Date', render: v => formatDate(v) },
     { key: 'txn_type', label: 'Type', render: v => <Badge color={txnTypeColor(v)}>{txnTypeLabel(v)}</Badge> },
@@ -175,6 +296,21 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
     { key: 'mnp_amount', label: 'MNP', render: v => v > 0 ? <span className="text-amber-600 tabular-nums">{formatCurrency(v)}</span> : '—' },
     { key: 'closing_balance', label: 'Closing', render: v => <span className={`font-semibold tabular-nums ${v > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{formatCurrency(v)}</span> },
     { key: 'notes', label: 'Notes', render: v => <span className="text-slate-400 text-xs">{v || '—'}</span> },
+    ...(isAdmin ? [{
+      key: 'actions',
+      label: '',
+      className: 'text-right',
+      cellClass: 'text-right',
+      render: (_, r) => {
+        const isLatest = r.id === latestTxnId;
+        return (
+          <div className="flex gap-1 justify-end">
+            <Button size="sm" variant="ghost" disabled={!isLatest} onClick={(e) => { e.stopPropagation(); setEditTxn(r); }}>Edit</Button>
+            <Button size="sm" variant="ghost" disabled={!isLatest} onClick={(e) => { e.stopPropagation(); setDeleteTxn(r); }}>Delete</Button>
+          </div>
+        );
+      },
+    }] : []),
   ];
 
   return (
@@ -214,6 +350,16 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
         <Toast toasts={toast.toasts} remove={toast.remove} />
       </Modal>
       <TxnFormModal open={txnModal} onClose={() => setTxnModal(false)} onSave={handleAddTxn} vendor={vendor} />
+      <TxnEditModal open={!!editTxn} onClose={() => setEditTxn(null)} onSave={handleUpdateTxn} vendor={vendor} initial={editTxn} />
+      <ConfirmDialog
+        open={!!deleteTxn}
+        onClose={() => setDeleteTxn(null)}
+        onConfirm={handleDeleteTxn}
+        title="Confirm delete"
+        message="Delete the most recent transaction? This cannot be undone."
+        confirmLabel="Delete"
+        danger
+      />
     </>
   );
 }

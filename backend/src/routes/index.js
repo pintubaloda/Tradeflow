@@ -82,6 +82,15 @@ router.post('/firms/:firmId/vendors/:vendorId/transactions',
   body('amount').isFloat({ min: 0 }),
   vendorCtrl.addTransaction
 );
+router.put('/firms/:firmId/vendors/:vendorId/transactions/:txnId',
+  authenticate, requireFirmAccess, requireModule('vendor_ledger'),
+  requireRole('tenant_admin','firm_admin'),
+  body('txnDate').isDate(),
+  body('txnType').isIn(['advance','debit','credit','mnp']),
+  body('amount').isFloat({ min: 0 }),
+  body('mnpAmount').optional().isFloat({ min: 0 }),
+  vendorCtrl.updateTransaction
+);
 router.delete('/firms/:firmId/vendors/:vendorId/transactions/:txnId',
   authenticate, requireFirmAccess, requireModule('vendor_ledger'),
   requireRole('tenant_admin','firm_admin'),

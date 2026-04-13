@@ -173,6 +173,105 @@ const addTransaction = async (req, res, next) => {
   }
 };
 
+// PUT /api/firms/:firmId/vendors/:vendorId/transactions/:txnId
+// Only allow editing the most recent transaction (to preserve ledger integrity)
+const updateTransaction = async (req, res, next) => {
+  // FIX: validate BEFORE acquiring client / starting transaction
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
+
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    // Verify vendor belongs to this firm
+    const vendor = await client.query(
+      'SELECT id, opening_balance FROM vendors WHERE id=$1 AND firm_id=$2',
+      [req.params.vendorId, req.firmId]
+    );
+    if (!vendor.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Vendor not found' });
+    }
+
+    // Verify the transaction belongs to this vendor AND firm
+    const txn = await client.query(
+      `SELECT * FROM vendor_transactions
+       WHERE id=$1 AND vendor_id=$2 AND firm_id=$3
+       FOR UPDATE`,
+      [req.params.txnId, req.params.vendorId, req.firmId]
+    );
+    if (!txn.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    // Must be the latest transaction
+    const latest = await client.query(
+      `SELECT id FROM vendor_transactions
+       WHERE vendor_id=$1 ORDER BY txn_date DESC, created_at DESC LIMIT 1`,
+      [req.params.vendorId]
+    );
+    if (!latest.rows.length || latest.rows[0].id !== req.params.txnId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Only the most recent transaction can be edited' });
+    }
+
+    // Prevent moving txnDate before the previous latest txn (keeps ledger ordering consistent)
+    const prev = await client.query(
+      `SELECT txn_date FROM vendor_transactions
+       WHERE vendor_id=$1 AND id <> $2
+       ORDER BY txn_date DESC, created_at DESC
+       LIMIT 1`,
+      [req.params.vendorId, req.params.txnId]
+    );
+
+    const { txnDate, txnType, amount, mnpAmount, referenceNo, notes } = req.body;
+    if (prev.rows.length) {
+      const prevDate = prev.rows[0].txn_date;
+      if (new Date(txnDate).getTime() < new Date(prevDate).getTime()) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `txnDate must be on/after ${new Date(prevDate).toISOString().slice(0, 10)}` });
+      }
+    }
+
+    const openingBal = parseFloat(txn.rows[0].opening_balance);
+    const amt = parseFloat(amount) || 0;
+    const mnp = parseFloat(mnpAmount) || 0;
+
+    // Compute closing: opening + DR - CR + MNP
+    let closingBal = openingBal;
+    if (txnType === 'advance' || txnType === 'debit') closingBal += amt;
+    else if (txnType === 'credit') closingBal -= amt;
+    closingBal += mnp;
+
+    const updated = await client.query(
+      `UPDATE vendor_transactions
+       SET txn_date=$1, txn_type=$2, amount=$3, mnp_amount=$4,
+           closing_balance=$5, reference_no=$6, notes=$7, updated_at=NOW()
+       WHERE id=$8
+       RETURNING *`,
+      [txnDate, txnType, amt, mnp, closingBal, referenceNo || null, notes || null, req.params.txnId]
+    );
+
+    await client.query('COMMIT');
+
+    if (req.wsBroadcast) {
+      req.wsBroadcast(req.user.tenant_id, req.firmId, {
+        event: 'vendor_txn_updated',
+        data: updated.rows[0],
+      });
+    }
+
+    res.json(updated.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    next(err);
+  } finally {
+    client.release();
+  }
+};
+
 // DELETE /api/firms/:firmId/vendors/:vendorId/transactions/:txnId
 // Only allow deleting the most recent transaction (to preserve ledger integrity)
 const deleteTransaction = async (req, res, next) => {
@@ -210,6 +309,14 @@ const deleteTransaction = async (req, res, next) => {
     }
     await client.query('DELETE FROM vendor_transactions WHERE id=$1', [req.params.txnId]);
     await client.query('COMMIT');
+
+    if (req.wsBroadcast) {
+      req.wsBroadcast(req.user.tenant_id, req.firmId, {
+        event: 'vendor_txn_deleted',
+        data: { id: req.params.txnId, vendorId: req.params.vendorId },
+      });
+    }
+
     res.json({ message: 'Transaction deleted' });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -219,4 +326,4 @@ const deleteTransaction = async (req, res, next) => {
   }
 };
 
-module.exports = { listVendors, createVendor, updateVendor, getVendorLedger, addTransaction, deleteTransaction };
+module.exports = { listVendors, createVendor, updateVendor, getVendorLedger, addTransaction, updateTransaction, deleteTransaction };

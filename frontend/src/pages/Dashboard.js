@@ -50,7 +50,7 @@ export default function Dashboard() {
     firmId: currentFirm?.id,
     enabled: !!currentFirm,
     onMessage: (msg) => {
-      if (msg.event === 'collection_added' || msg.event === 'vendor_txn_added') load();
+      if (msg.event === 'collection_added' || msg.event === 'vendor_txn_added' || msg.event === 'vendor_txn_updated' || msg.event === 'vendor_txn_deleted') load();
     },
   });
 
