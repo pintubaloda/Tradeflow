@@ -52,11 +52,13 @@ const subscribeModule = async (req, res, next) => {
 
     const { price, billingType } = MODULE_PRICING[moduleKey];
 
+    const isProd = process.env.NODE_ENV === 'production';
+    const paymentGateDisabled = process.env.DISABLE_PAYMENT_GATE === 'true';
+
     // FIX: for paid modules require payment confirmation token
     // In a real integration this would validate a Razorpay/Stripe payment ID.
     // We gate with a flag to prevent free activation of paid modules.
-    const isProd = process.env.NODE_ENV === 'production';
-    if (price > 0 && !req.body.paymentConfirmed && isProd) {
+    if (price > 0 && !req.body.paymentConfirmed && isProd && !paymentGateDisabled) {
       return res.status(402).json({
         error: 'Payment required',
         code: 'PAYMENT_REQUIRED',
@@ -86,9 +88,11 @@ const upgradePlan = async (req, res, next) => {
     const plan = await query('SELECT * FROM subscription_plans WHERE id=$1 AND is_active=true', [planId]);
     if (!plan.rows.length) return res.status(400).json({ error: 'Plan not found' });
 
-    // FIX: block free upgrade to higher-priced plans without payment
     const isProd = process.env.NODE_ENV === 'production';
-    if (plan.rows[0].base_price > 0 && !req.body.paymentConfirmed && isProd) {
+    const paymentGateDisabled = process.env.DISABLE_PAYMENT_GATE === 'true';
+
+    // FIX: block free upgrade to higher-priced plans without payment
+    if (plan.rows[0].base_price > 0 && !req.body.paymentConfirmed && isProd && !paymentGateDisabled) {
       return res.status(402).json({
         error: 'Payment required',
         code: 'PAYMENT_REQUIRED',

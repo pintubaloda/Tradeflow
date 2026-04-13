@@ -67,12 +67,14 @@ psql "$DATABASE_URL" -f backend/src/config/schema.sql
   - `JWT_SECRET` = 32+ chars random
   - `NODE_ENV` = `production`
   - `FRONTEND_URL` = `https://<your-frontend-domain>`
+  - (demo only) `DISABLE_PAYMENT_GATE` = `true` (lets you activate paid modules without `paymentConfirmed`)
 
 ### 4) Deploy Frontend service
 - **Root Directory**: `frontend`
 - **Variables**:
-  - `TRADEFLOW_API_URL` = `https://<your-backend-domain>/api`
-  - `TRADEFLOW_WS_URL` = `wss://<your-backend-domain>/ws`
+  - `TRADEFLOW_BACKEND_ORIGIN` = `https://<your-backend-domain>`
+  - (optional) `TRADEFLOW_API_URL` = `/api` (default)
+  - (optional) `TRADEFLOW_WS_URL` = `wss://<your-frontend-domain>/ws` (if not set, it auto-detects ws/wss)
 
 Notes:
 - Frontend reads API/WS URLs from `runtime-config.js` at runtime (no rebuild needed for URL changes).

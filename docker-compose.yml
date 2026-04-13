@@ -49,6 +49,9 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      # Compose-only: Nginx proxies /api and /ws to this backend service name
+      TRADEFLOW_BACKEND_ORIGIN: http://backend:4000
     ports:
       - "3000:80"
 

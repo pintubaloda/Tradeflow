@@ -1,7 +1,11 @@
 import { useEffect, useRef, useCallback } from 'react';
 
 const RUNTIME_WS_URL = (typeof window !== 'undefined' && window.__TRADEFLOW_CONFIG__ && window.__TRADEFLOW_CONFIG__.WS_URL) || '';
-const WS_URL = RUNTIME_WS_URL || process.env.REACT_APP_WS_URL || `ws://${window.location.host}/ws`;
+const defaultWsUrl = () => {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${proto}://${window.location.host}/ws`;
+};
+const WS_URL = RUNTIME_WS_URL || process.env.REACT_APP_WS_URL || defaultWsUrl();
 
 export function useWebSocket({ tenantId, firmId, onMessage, enabled = true }) {
   const wsRef = useRef(null);
