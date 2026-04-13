@@ -70,6 +70,7 @@ psql "$DATABASE_URL" -f backend/src/config/schema.sql
   - (demo only) `DISABLE_PAYMENT_GATE` = `true` (lets you activate paid modules without `paymentConfirmed`)
   - (demo) `DEMO_SEED` = `true` (creates demo tenant/users/data on first start)
   - (demo) `DEMO_PASSWORD` = `Tradeflow@12345` (or set your own)
+  - (first run) `AUTO_DB_INIT` = `true` (applies `backend/src/config/schema.sql` if DB is empty)
 
 ### 4) Deploy Frontend service
 - **Root Directory**: `frontend`

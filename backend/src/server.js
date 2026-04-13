@@ -10,6 +10,7 @@ const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
 const wsManager = require('./utils/wsManager');
 const seedDemo = require('./utils/seedDemo');
+const initDb = require('./utils/initDb');
 
 // ── STARTUP VALIDATION ────────────────────────────────────────
 // FIX SECURITY: Fail fast if critical env vars are missing
@@ -42,15 +43,22 @@ if (isProd && allowedOrigins.length === 0) {
   process.exit(1);
 }
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
     // Allow non-browser requests (curl, mobile apps) in dev only
     if (!origin && !isProd) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
+    // Do not throw (preflight would become 500). Returning false yields no CORS headers.
+    return callback(null, false);
   },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // ── RATE LIMITING ─────────────────────────────────────────────
 const limiter = rateLimit({
@@ -97,9 +105,15 @@ app.use(errorHandler);
 wsManager.init(server);
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`TradeFlow API running on :${PORT} [${isProd ? 'production' : 'development'}]`));
+const bootstrap = async () => {
+  await initDb();
+  await seedDemo();
+  server.listen(PORT, () => console.log(`TradeFlow API running on :${PORT} [${isProd ? 'production' : 'development'}]`));
+};
 
-// Optional: create demo tenant/users/data (idempotent; controlled by env flag).
-seedDemo().catch((e) => console.error('[demo-seed] failed:', e.message));
+bootstrap().catch((e) => {
+  console.error('FATAL:', e.message);
+  process.exit(1);
+});
 
 module.exports = { app, server };
