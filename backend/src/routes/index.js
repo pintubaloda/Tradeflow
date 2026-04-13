@@ -110,6 +110,9 @@ router.post('/firms/:firmId/collections',
   authenticate, requireFirmAccess, requireModule('market_collection'),
   body('retailerId').isUUID(),
   body('txnDate').isDate(),
+  body('creditAmount').optional().isFloat({ min: 0 }),
+  body('collectedAmount').optional().isFloat({ min: 0 }),
+  body('paymentMode').optional().isIn(['cash','upi','cheque','bank','credit']),
   collectionCtrl.addCollection
 );
 router.get('/firms/:firmId/collection/agents',

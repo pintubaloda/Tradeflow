@@ -133,6 +133,33 @@ const addCollection = async (req, res, next) => {
     const r = retailer.rows[0];
     const credit    = parseFloat(creditAmount)    || 0;
     const collected = parseFloat(collectedAmount) || 0;
+
+    if (credit < 0 || collected < 0) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({ error: 'Amounts must be >= 0' });
+    }
+    if (credit === 0 && collected === 0) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({ error: 'Either creditAmount or collectedAmount must be > 0' });
+    }
+
+    // Role enforcement:
+    // - collection_boy can ONLY record collections (no credit/sales posting)
+    if (req.user.role === 'collection_boy' && credit > 0) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Collection boys cannot add credit/outstanding transactions' });
+    }
+    // - viewer is read-only
+    if (req.user.role === 'viewer') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    // - credit/outstanding posting allowed only for admin/accountant roles
+    if (credit > 0 && !['tenant_admin', 'firm_admin', 'accountant'].includes(req.user.role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only admin/accountant can add credit/outstanding transactions' });
+    }
+
     const outBefore = parseFloat(r.current_outstanding);
     const outAfter  = outBefore + credit - collected;
 

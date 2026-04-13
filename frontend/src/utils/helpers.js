@@ -28,6 +28,7 @@ export const txnTypeColor = (type) => ({
 
 export const paymentModeLabel = (mode) => ({
   cash: 'Cash', upi: 'UPI', cheque: 'Cheque', bank: 'Bank Transfer',
+  credit: 'Credit',
 }[mode] || mode);
 
 export const debounce = (fn, ms = 300) => {

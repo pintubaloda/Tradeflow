@@ -71,7 +71,7 @@ function CollectionModal({ open, onClose, onSave, retailers, agents }) {
     e.preventDefault();
     const errs = {};
     if (!form.retailerId) errs.retailerId = 'Select retailer';
-    if (!form.collectedAmount || parseFloat(form.collectedAmount) < 0) errs.collectedAmount = 'Enter amount';
+    if (!form.collectedAmount || parseFloat(form.collectedAmount) <= 0) errs.collectedAmount = 'Enter amount';
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setLoading(true);
     try { await onSave(form); onClose(); }
@@ -102,7 +102,7 @@ function CollectionModal({ open, onClose, onSave, retailers, agents }) {
         )}
         <Input label="Date *" type="date" {...f('txnDate')} />
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Credit given (₹)" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('creditAmount')} />
+          <Input label="Credit given (₹)" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('creditAmount')} disabled />
           <Input label="Amount collected (₹) *" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('collectedAmount')} />
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -121,8 +121,63 @@ function CollectionModal({ open, onClose, onSave, retailers, agents }) {
   );
 }
 
+function OutstandingModal({ open, onClose, onSave, retailers }) {
+  const [form, setForm] = useState({ retailerId: '', txnDate: today(), creditAmount: '', notes: '' });
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+  const toast = useToast();
+
+  useEffect(() => {
+    setForm({ retailerId: '', txnDate: today(), creditAmount: '', notes: '' });
+    setErrors({});
+  }, [open]);
+
+  const f = (k) => ({ value: form[k], onChange: e => setForm(p => ({ ...p, [k]: e.target.value })), error: errors[k] });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!form.retailerId) errs.retailerId = 'Select retailer';
+    if (!form.creditAmount || parseFloat(form.creditAmount) <= 0) errs.creditAmount = 'Enter credit amount';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setLoading(true);
+    try { await onSave(form); onClose(); }
+    catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
+    finally { setLoading(false); }
+  };
+
+  const selectedRetailer = retailers.find(r => r.id === form.retailerId);
+
+  return (
+    <Modal open={open} onClose={onClose} title="Add Outstanding (Credit)" size="md"
+      footer={<>
+        <Button variant="default" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" loading={loading} onClick={submit}>Add outstanding</Button>
+      </>}>
+      <form onSubmit={submit} className="space-y-3">
+        <Select label="Retailer *" {...f('retailerId')}>
+          <option value="">— Select retailer —</option>
+          {retailers.map(r => (
+            <option key={r.id} value={r.id}>{r.name} {r.area ? `(${r.area})` : ''}</option>
+          ))}
+        </Select>
+        {selectedRetailer && (
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs">
+            <p className="font-medium text-slate-700">Current outstanding: <span className="text-red-600">{formatCurrency(selectedRetailer.current_outstanding)}</span></p>
+            <p className="text-slate-500">This will increase outstanding.</p>
+          </div>
+        )}
+        <Input label="Date *" type="date" {...f('txnDate')} />
+        <Input label="Credit given (₹) *" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('creditAmount')} />
+        <Input label="Notes" placeholder="Optional" {...f('notes')} />
+      </form>
+      <Toast toasts={toast.toasts} remove={toast.remove} />
+    </Modal>
+  );
+}
+
 export default function MarketCollection() {
-  const { user, currentFirm, hasModule } = useAuth();
+  const { user, currentFirm, hasModule, isAdmin } = useAuth();
   const toast = useToast();
   const [tab, setTab] = useState('overview'); // overview | retailers | transactions
   const [retailers, setRetailers] = useState([]);
@@ -134,6 +189,7 @@ export default function MarketCollection() {
   const [retailerModal, setRetailerModal] = useState(false);
   const [editRetailer, setEditRetailer] = useState(null);
   const [collectionModal, setCollectionModal] = useState(false);
+  const [outstandingModal, setOutstandingModal] = useState(false);
   const [searchRetailer, setSearchRetailer] = useState('');
   const [loadError, setLoadError] = useState(false);
 
@@ -183,11 +239,24 @@ export default function MarketCollection() {
   const handleAddCollection = async (form) => {
     await collectionAPI.add(currentFirm.id, {
       retailerId: form.retailerId, txnDate: form.txnDate,
-      creditAmount: parseFloat(form.creditAmount) || 0,
+      creditAmount: 0,
       collectedAmount: parseFloat(form.collectedAmount) || 0,
       paymentMode: form.paymentMode, referenceNo: form.referenceNo, notes: form.notes,
     });
     toast.success('Collection recorded');
+    loadAll();
+  };
+
+  const canPostOutstanding = isAdmin || user?.role === 'accountant';
+  const handleAddOutstanding = async (form) => {
+    await collectionAPI.add(currentFirm.id, {
+      retailerId: form.retailerId, txnDate: form.txnDate,
+      creditAmount: parseFloat(form.creditAmount) || 0,
+      collectedAmount: 0,
+      paymentMode: 'credit',
+      notes: form.notes,
+    });
+    toast.success('Outstanding added');
     loadAll();
   };
 
@@ -256,6 +325,7 @@ export default function MarketCollection() {
         </div>
         <div className="flex gap-2">
           <Button variant="default" size="sm" onClick={() => { setEditRetailer(null); setRetailerModal(true); }}>+ Retailer</Button>
+          {canPostOutstanding && <Button variant="primary" size="sm" onClick={() => setOutstandingModal(true)}>+ Add outstanding</Button>}
           <Button variant="success" size="sm" onClick={() => setCollectionModal(true)}>+ Record collection</Button>
         </div>
       </div>
@@ -379,6 +449,7 @@ export default function MarketCollection() {
 
       <RetailerModal open={retailerModal} onClose={() => { setRetailerModal(false); setEditRetailer(null); }} onSave={handleSaveRetailer} initial={editRetailer} />
       <CollectionModal open={collectionModal} onClose={() => setCollectionModal(false)} onSave={handleAddCollection} retailers={retailers} agents={agents} />
+      <OutstandingModal open={outstandingModal} onClose={() => setOutstandingModal(false)} onSave={handleAddOutstanding} retailers={retailers} />
       <Toast toasts={toast.toasts} remove={toast.remove} />
     </div>
   );
