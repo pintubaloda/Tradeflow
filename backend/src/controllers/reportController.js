@@ -93,7 +93,6 @@ const getSummary = async (req, res, next) => {
         `SELECT
           COALESCE(SUM(CASE WHEN txn_type IN ('advance','debit') THEN amount ELSE 0 END),0) AS total_dr,
           COALESCE(SUM(CASE WHEN txn_type='credit' THEN amount ELSE 0 END),0) AS total_cr,
-          COALESCE(SUM(mnp_amount),0) AS total_mnp,
           COUNT(*) AS txn_count
          FROM vendor_transactions
          WHERE firm_id=$1 AND txn_date BETWEEN $2 AND $3`,
@@ -282,4 +281,3 @@ const listCollectionTransactions = async (req, res, next) => {
 };
 
 module.exports = { getSummary, listVendorTransactions, listCollectionTransactions };
-

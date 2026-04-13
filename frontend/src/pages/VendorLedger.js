@@ -11,7 +11,6 @@ const TXN_TYPES = [
   { value: 'advance', label: 'Advance (1st payment — DR)' },
   { value: 'debit',   label: 'Debit payment (2nd+ — DR)' },
   { value: 'credit',  label: 'Received payment (CR)' },
-  { value: 'mnp',     label: 'MNP adjustment' },
 ];
 
 function VendorFormModal({ open, onClose, onSave, initial }) {
@@ -70,13 +69,13 @@ function VendorFormModal({ open, onClose, onSave, initial }) {
 }
 
 function TxnFormModal({ open, onClose, onSave, vendor }) {
-  const [form, setForm] = useState({ txnDate: today(), txnType: 'advance', amount: '', mnpAmount: '0', referenceNo: '', notes: '' });
+  const [form, setForm] = useState({ txnDate: today(), txnType: 'advance', amount: '', referenceNo: '', notes: '' });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const toast = useToast();
 
   useEffect(() => {
-    setForm({ txnDate: today(), txnType: 'advance', amount: '', mnpAmount: '0', referenceNo: '', notes: '' });
+    setForm({ txnDate: today(), txnType: 'advance', amount: '', referenceNo: '', notes: '' });
     setErrors({});
   }, [open]);
 
@@ -115,7 +114,7 @@ function TxnFormModal({ open, onClose, onSave, vendor }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label={isDR ? 'Amount (DR) *' : isCR ? 'Amount (CR) *' : 'Amount *'} type="number" min="0.01" step="0.01" placeholder="0.00" prefix="₹" {...f('amount')} />
-          <Input label="MNP amount" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('mnpAmount')} />
+          <div />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Reference no." placeholder="INV-001" {...f('referenceNo')} />
@@ -124,7 +123,7 @@ function TxnFormModal({ open, onClose, onSave, vendor }) {
         {/* Preview balance */}
         <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-500 space-y-1">
           <p className="font-medium text-slate-700">Closing balance formula:</p>
-          <p>Opening Balance {isDR ? '+' : '−'} {parseFloat(form.amount)||0} {parseFloat(form.mnpAmount)>0 ? `+ ${form.mnpAmount} (MNP)` : ''}</p>
+          <p>Opening Balance {isDR ? '+' : '−'} {parseFloat(form.amount)||0}</p>
         </div>
       </form>
       <Toast toasts={toast.toasts} remove={toast.remove} />
@@ -133,7 +132,7 @@ function TxnFormModal({ open, onClose, onSave, vendor }) {
 }
 
 function TxnEditModal({ open, onClose, onSave, vendor, initial }) {
-  const [form, setForm] = useState({ txnDate: today(), txnType: 'advance', amount: '', mnpAmount: '0', referenceNo: '', notes: '' });
+  const [form, setForm] = useState({ txnDate: today(), txnType: 'advance', amount: '', referenceNo: '', notes: '' });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -145,7 +144,6 @@ function TxnEditModal({ open, onClose, onSave, vendor, initial }) {
       txnDate: (initial.txn_date || '').slice(0, 10),
       txnType: initial.txn_type,
       amount: String(initial.amount ?? ''),
-      mnpAmount: String(initial.mnp_amount ?? 0),
       referenceNo: initial.reference_no || '',
       notes: initial.notes || '',
     });
@@ -160,7 +158,6 @@ function TxnEditModal({ open, onClose, onSave, vendor, initial }) {
     const errs = {};
     if (!form.txnDate) errs.txnDate = 'Date required';
     if (form.amount === '' || parseFloat(form.amount) < 0) errs.amount = 'Amount must be >= 0';
-    if (parseFloat(form.mnpAmount || 0) < 0) errs.mnpAmount = 'MNP must be >= 0';
     return errs;
   };
 
@@ -195,10 +192,7 @@ function TxnEditModal({ open, onClose, onSave, vendor, initial }) {
           <Select label="Transaction type" {...f('txnType')}>
             {TXN_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </Select>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Amount (₹)" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('amount')} />
-            <Input label="MNP (₹)" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('mnpAmount')} />
-          </div>
+          <Input label="Amount (₹)" type="number" min="0" step="0.01" placeholder="0.00" prefix="₹" {...f('amount')} />
           <div className="grid grid-cols-2 gap-3">
             <Input label="Reference no." placeholder="INV-001" {...f('referenceNo')} />
             <Input label="Notes" placeholder="Optional" {...f('notes')} />
@@ -227,6 +221,8 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
   const [txnModal, setTxnModal] = useState(false);
   const [editTxn, setEditTxn] = useState(null);
   const [deleteTxn, setDeleteTxn] = useState(null);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadFormat, setDownloadFormat] = useState('pdf'); // pdf | xls
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const toast = useToast();
@@ -249,7 +245,7 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
   const handleAddTxn = async (form) => {
     await vendorAPI.addTxn(firmId, vendor.id, {
       txnDate: form.txnDate, txnType: form.txnType,
-      amount: parseFloat(form.amount), mnpAmount: parseFloat(form.mnpAmount) || 0,
+      amount: parseFloat(form.amount), mnpAmount: 0,
       referenceNo: form.referenceNo, notes: form.notes,
     });
     toast.success('Transaction added');
@@ -266,7 +262,7 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
       txnDate: form.txnDate,
       txnType: form.txnType,
       amount: parseFloat(form.amount) || 0,
-      mnpAmount: parseFloat(form.mnpAmount) || 0,
+      mnpAmount: 0,
       referenceNo: form.referenceNo,
       notes: form.notes,
     });
@@ -287,13 +283,118 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
     }
   };
 
+  const ledgerTitle = `Ledger — ${vendor?.name || ''}`;
+  const rangeLabel = `${from || 'All'} → ${to || 'All'}`;
+
+  const escapeCsv = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  const downloadXls = () => {
+    const rows = data?.transactions || [];
+    const header = ['Date','Type','Opening','DR','CR','Closing','Notes','By'];
+    const lines = [header.join(',')];
+    rows.forEach(r => {
+      const dr = (r.txn_type === 'advance' || r.txn_type === 'debit') ? r.amount : '';
+      const cr = (r.txn_type === 'credit') ? r.amount : '';
+      lines.push([
+        (r.txn_date || '').slice(0, 10),
+        txnTypeLabel(r.txn_type),
+        r.opening_balance,
+        dr,
+        cr,
+        r.closing_balance,
+        r.notes || '',
+        r.created_by_name || '',
+      ].map(escapeCsv).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const a = document.createElement('a');
+    const safeName = (vendor?.name || 'ledger').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${safeName}-ledger.xls`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+
+  const downloadPdf = () => {
+    const rows = data?.transactions || [];
+    const w = window.open('', '_blank', 'noopener,noreferrer');
+    if (!w) { toast.error('Popup blocked. Allow popups to download PDF.'); return; }
+    const style = `
+      <style>
+        body{font-family:Inter,system-ui,Arial;margin:24px;color:#111827}
+        h1{font-size:16px;margin:0 0 6px}
+        .meta{font-size:12px;color:#6b7280;margin-bottom:14px}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th,td{border-bottom:1px solid #e5e7eb;padding:8px 6px;text-align:left;vertical-align:top}
+        th{color:#6b7280;text-transform:uppercase;letter-spacing:.06em;font-size:10px}
+        .num{text-align:right;font-variant-numeric:tabular-nums}
+      </style>
+    `;
+    const htmlRows = rows.map(r => {
+      const dr = (r.txn_type === 'advance' || r.txn_type === 'debit') ? formatCurrency(r.amount) : '—';
+      const cr = (r.txn_type === 'credit') ? formatCurrency(r.amount) : '—';
+      const notes = (r.notes || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `
+        <tr>
+          <td>${formatDate(r.txn_date)}</td>
+          <td>${txnTypeLabel(r.txn_type)}</td>
+          <td class="num">${formatCurrency(r.opening_balance)}</td>
+          <td class="num">${dr}</td>
+          <td class="num">${cr}</td>
+          <td class="num">${formatCurrency(r.closing_balance)}</td>
+          <td>${notes}</td>
+        </tr>
+      `;
+    }).join('');
+
+    w.document.write(`
+      <html><head><title>${ledgerTitle}</title>${style}</head>
+      <body>
+        <h1>${ledgerTitle}</h1>
+        <div class="meta">${rangeLabel}</div>
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Type</th><th class="num">Opening</th><th class="num">DR</th><th class="num">CR</th><th class="num">Closing</th><th>Notes</th>
+          </tr></thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+        <script>window.onload=()=>{window.print();}</script>
+      </body></html>
+    `);
+    w.document.close();
+  };
+
+  const shareLedger = async () => {
+    const text = `${ledgerTitle}\n${rangeLabel}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: ledgerTitle, text, url: window.location.href });
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(`${text}\n${window.location.href}`);
+        toast.success('Ledger link copied');
+        return;
+      }
+      toast.info(text);
+    } catch (_) {
+      toast.error('Share failed');
+    }
+  };
+
   const ledgerCols = [
     { key: 'txn_date', label: 'Date', render: v => formatDate(v) },
     { key: 'txn_type', label: 'Type', render: v => <Badge color={txnTypeColor(v)}>{txnTypeLabel(v)}</Badge> },
     { key: 'opening_balance', label: 'Opening', render: v => <span className="tabular-nums">{formatCurrency(v)}</span> },
     { key: 'amount', label: 'DR', render: (v, r) => r.txn_type === 'advance' || r.txn_type === 'debit' ? <span className="text-red-600 font-medium tabular-nums">{formatCurrency(v)}</span> : '—' },
     { key: 'amount_cr', label: 'CR', render: (_, r) => r.txn_type === 'credit' ? <span className="text-emerald-600 font-medium tabular-nums">{formatCurrency(r.amount)}</span> : '—' },
-    { key: 'mnp_amount', label: 'MNP', render: v => v > 0 ? <span className="text-amber-600 tabular-nums">{formatCurrency(v)}</span> : '—' },
     { key: 'closing_balance', label: 'Closing', render: v => <span className={`font-semibold tabular-nums ${v > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{formatCurrency(v)}</span> },
     { key: 'notes', label: 'Notes', render: v => <span className="text-slate-400 text-xs">{v || '—'}</span> },
     ...(isAdmin ? [{
@@ -315,11 +416,17 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
 
   return (
     <>
-      <Modal open={open} onClose={onClose} title={`Ledger — ${vendor?.name || ''}`} size="xl"
-        footer={<Button variant="primary" onClick={() => setTxnModal(true)}>+ Add transaction</Button>}>
+      <Modal open={open} onClose={onClose} title={ledgerTitle} size="xl"
+        footer={<div className="w-full flex items-center justify-between gap-2">
+          <div className="flex gap-2">
+            <Button variant="default" onClick={shareLedger}>Share</Button>
+            <Button variant="default" onClick={() => setDownloadOpen(true)}>Download</Button>
+          </div>
+          <Button variant="primary" onClick={() => setTxnModal(true)}>+ Add transaction</Button>
+        </div>}>
         {/* Summary */}
         {data?.summary && (
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-red-50 rounded-xl p-3 text-center">
               <p className="text-xs text-slate-500 mb-1">Total DR</p>
               <p className="font-bold text-red-600 tabular-nums">{formatCurrency(data.summary.total_dr)}</p>
@@ -327,10 +434,6 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
             <div className="bg-emerald-50 rounded-xl p-3 text-center">
               <p className="text-xs text-slate-500 mb-1">Total CR</p>
               <p className="font-bold text-emerald-600 tabular-nums">{formatCurrency(data.summary.total_cr)}</p>
-            </div>
-            <div className="bg-amber-50 rounded-xl p-3 text-center">
-              <p className="text-xs text-slate-500 mb-1">MNP</p>
-              <p className="font-bold text-amber-600 tabular-nums">{formatCurrency(data.summary.total_mnp)}</p>
             </div>
           </div>
         )}
@@ -360,6 +463,21 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
         confirmLabel="Delete"
         danger
       />
+      <Modal open={downloadOpen} onClose={() => setDownloadOpen(false)} title="Download ledger" size="sm"
+        footer={<>
+          <Button variant="default" onClick={() => setDownloadOpen(false)}>Cancel</Button>
+          <Button variant="primary" onClick={() => {
+            setDownloadOpen(false);
+            if (downloadFormat === 'xls') downloadXls();
+            else downloadPdf();
+          }}>Download</Button>
+        </>}>
+        <Select label="Format" value={downloadFormat} onChange={e => setDownloadFormat(e.target.value)}>
+          <option value="pdf">PDF</option>
+          <option value="xls">XLS</option>
+        </Select>
+        <p className="text-xs text-slate-400 mt-2">PDF uses the browser print dialog.</p>
+      </Modal>
     </>
   );
 }

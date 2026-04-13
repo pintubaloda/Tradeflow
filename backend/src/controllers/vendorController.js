@@ -92,8 +92,7 @@ const getVendorLedger = async (req, res, next) => {
     const summary = await query(
       `SELECT
         COALESCE(SUM(CASE WHEN txn_type IN ('advance','debit') THEN amount ELSE 0 END),0) AS total_dr,
-        COALESCE(SUM(CASE WHEN txn_type = 'credit' THEN amount ELSE 0 END),0) AS total_cr,
-        COALESCE(SUM(mnp_amount),0) AS total_mnp
+        COALESCE(SUM(CASE WHEN txn_type = 'credit' THEN amount ELSE 0 END),0) AS total_cr
        FROM vendor_transactions WHERE firm_id=$1 AND vendor_id=$2`,
       [req.firmId, req.params.vendorId]
     );

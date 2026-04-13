@@ -78,7 +78,7 @@ router.get('/firms/:firmId/vendors/:vendorId/transactions',
 router.post('/firms/:firmId/vendors/:vendorId/transactions',
   authenticate, requireFirmAccess, requireModule('vendor_ledger'),
   body('txnDate').isDate(),
-  body('txnType').isIn(['advance','debit','credit','mnp']),
+  body('txnType').isIn(['advance','debit','credit']),
   body('amount').isFloat({ min: 0 }),
   vendorCtrl.addTransaction
 );
@@ -86,7 +86,7 @@ router.put('/firms/:firmId/vendors/:vendorId/transactions/:txnId',
   authenticate, requireFirmAccess, requireModule('vendor_ledger'),
   requireRole('tenant_admin','firm_admin'),
   body('txnDate').isDate(),
-  body('txnType').isIn(['advance','debit','credit','mnp']),
+  body('txnType').isIn(['advance','debit','credit']),
   body('amount').isFloat({ min: 0 }),
   body('mnpAmount').optional().isFloat({ min: 0 }),
   vendorCtrl.updateTransaction
@@ -155,7 +155,7 @@ router.get('/firms/:firmId/reports/vendor-transactions',
   query('page').optional().isInt({ min: 1, max: 100000 }),
   query('limit').optional().isInt({ min: 1, max: 500 }),
   query('vendorId').optional().isUUID(),
-  query('txnType').optional().isIn(['advance', 'debit', 'credit', 'mnp']),
+  query('txnType').optional().isIn(['advance', 'debit', 'credit']),
   reportCtrl.listVendorTransactions
 );
 

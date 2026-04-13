@@ -121,6 +121,83 @@ function CollectionModal({ open, onClose, onSave, retailers, agents }) {
   );
 }
 
+function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [txns, setTxns] = useState([]);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const toast = useToast();
+
+  const load = useCallback(async () => {
+    if (!open || !retailer || !firmId) return;
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const res = await collectionAPI.list(firmId, {
+        retailerId: retailer.id,
+        from: from || undefined,
+        to: to || undefined,
+        limit: 200,
+      });
+      setTxns(res.data.transactions || []);
+    } catch (err) {
+      setLoadError(true);
+      toast.error(err.response?.data?.error || 'Failed to load retailer ledger');
+    } finally { setLoading(false); }
+  }, [open, retailer, firmId, from, to, toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const totals = txns.reduce((acc, t) => {
+    acc.credit += parseFloat(t.credit_amount) || 0;
+    acc.collected += parseFloat(t.collected_amount) || 0;
+    return acc;
+  }, { credit: 0, collected: 0 });
+
+  const cols = [
+    { key: 'txn_date', label: 'Date', render: v => formatDate(v) },
+    { key: 'collector_name', label: 'Collected by', render: (v) => (
+      <div className="flex items-center gap-1.5"><Avatar name={v} size="sm" /><span>{v}</span></div>
+    )},
+    { key: 'credit_amount', label: 'Credit', render: v => (parseFloat(v) || 0) > 0 ? <span className="text-amber-600 tabular-nums">{formatCurrency(v)}</span> : '—' },
+    { key: 'collected_amount', label: 'Collected', render: v => (parseFloat(v) || 0) > 0 ? <span className="text-emerald-600 font-semibold tabular-nums">{formatCurrency(v)}</span> : '—' },
+    { key: 'outstanding_after', label: 'Balance', render: v => (
+      <span className={`tabular-nums font-medium ${parseFloat(v) > 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatCurrency(v)}</span>
+    )},
+    { key: 'payment_mode', label: 'Mode', render: v => <Badge color="gray">{paymentModeLabel(v)}</Badge> },
+    { key: 'notes', label: 'Notes', render: v => <span className="text-slate-400 text-xs">{v || '—'}</span> },
+  ];
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Retailer Ledger — ${retailer?.name || ''}`} size="xl"
+      footer={<Button variant="default" onClick={onClose}>Close</Button>}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <StatCard label="Current outstanding" value={formatCurrency(retailer?.current_outstanding || 0)} color="red" icon="📋" />
+        <StatCard label="Credit (range)" value={formatCurrency(totals.credit)} color="amber" icon="➕" />
+        <StatCard label="Collected (range)" value={formatCurrency(totals.collected)} color="green" icon="💰" />
+        <StatCard label="Transactions" value={txns.length} icon="🧾" />
+      </div>
+
+      <div className="flex gap-2 mb-4">
+        <Input type="date" value={from} onChange={e => setFrom(e.target.value)} wrapperClass="flex-1" label="From" />
+        <Input type="date" value={to} onChange={e => setTo(e.target.value)} wrapperClass="flex-1" label="To" />
+        <Button variant="default" onClick={load}>Filter</Button>
+      </div>
+
+      {loading ? <div className="flex justify-center py-8"><Spinner /></div> : loadError ? (
+        <div className="flex flex-col items-center py-8 gap-3">
+          <p className="text-sm text-slate-500">Failed to load retailer ledger.</p>
+          <Button size="sm" variant="default" onClick={load}>Retry</Button>
+        </div>
+      ) : (
+        <Table columns={cols} rows={txns} empty="No transactions for this retailer" />
+      )}
+      <Toast toasts={toast.toasts} remove={toast.remove} />
+    </Modal>
+  );
+}
+
 function OutstandingModal({ open, onClose, onSave, retailers }) {
   const [form, setForm] = useState({ retailerId: '', txnDate: today(), creditAmount: '', notes: '' });
   const [loading, setLoading] = useState(false);
@@ -190,6 +267,7 @@ export default function MarketCollection() {
   const [editRetailer, setEditRetailer] = useState(null);
   const [collectionModal, setCollectionModal] = useState(false);
   const [outstandingModal, setOutstandingModal] = useState(false);
+  const [ledgerRetailer, setLedgerRetailer] = useState(null);
   const [searchRetailer, setSearchRetailer] = useState('');
   const [loadError, setLoadError] = useState(false);
 
@@ -295,6 +373,7 @@ export default function MarketCollection() {
     { key: 'last_txn_date', label: 'Last txn', render: v => formatDate(v) },
     { key: 'actions', label: '', render: (_, r) => (
       <div className="flex gap-1">
+        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setLedgerRetailer(r); }}>Ledger</Button>
         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEditRetailer(r); setRetailerModal(true); }}>Edit</Button>
       </div>
     )},
@@ -450,6 +529,7 @@ export default function MarketCollection() {
       <RetailerModal open={retailerModal} onClose={() => { setRetailerModal(false); setEditRetailer(null); }} onSave={handleSaveRetailer} initial={editRetailer} />
       <CollectionModal open={collectionModal} onClose={() => setCollectionModal(false)} onSave={handleAddCollection} retailers={retailers} agents={agents} />
       <OutstandingModal open={outstandingModal} onClose={() => setOutstandingModal(false)} onSave={handleAddOutstanding} retailers={retailers} />
+      <RetailerLedgerModal open={!!ledgerRetailer} onClose={() => setLedgerRetailer(null)} firmId={currentFirm?.id} retailer={ledgerRetailer} />
       <Toast toasts={toast.toasts} remove={toast.remove} />
     </div>
   );
