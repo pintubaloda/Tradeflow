@@ -113,6 +113,7 @@ If your server has **Coolify** installed (you wrote "collify" — assuming you m
 Notes:
 - API + WebSocket are served from the same domain via nginx proxy (`/api` and `/ws`), so you avoid CORS issues.
 - Postgres schema is initialized automatically on first DB start via `backend/src/config/schema.sql`.
+- To auto-deploy on every GitHub push, enable **Auto Deploy** in Coolify for this project (creates/uses a GitHub webhook).
 
 ## Manual Setup
 
