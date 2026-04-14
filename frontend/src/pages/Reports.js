@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { reportAPI } from '../services/api';
 import { Button, Card, Input, Spinner, StatCard, Table, Modal, Badge, Toast, useToast, Avatar } from '../components/common';
 import { formatCurrency, formatDate, today, txnTypeLabel, paymentModeLabel } from '../utils/helpers';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 const isoMinusDays = (days) => {
   const d = new Date();
@@ -12,9 +13,11 @@ const isoMinusDays = (days) => {
 };
 
 export default function Reports() {
-  const { currentFirm, hasModule, isAdmin } = useAuth();
+  const { user, currentFirm, hasModule, isAdmin } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
+  const toastRef = useRef(toast);
+  useEffect(() => { toastRef.current = toast; }, [toast]);
 
   const reportsEnabled = hasModule('reports');
   const vendorEnabled = hasModule('vendor_ledger');
@@ -80,13 +83,13 @@ export default function Reports() {
       setLedgerData(res.data);
     } catch (err) {
       setLedgerLoadError(true);
-      toast.error(err.response?.data?.error || 'Failed to load retailer ledger');
+      toastRef.current.error(err.response?.data?.error || 'Failed to load retailer ledger');
     } finally {
       setLedgerLoading(false);
     }
   };
 
-  const reloadRetailerLedger = async () => {
+  const reloadRetailerLedger = useCallback(async () => {
     if (!currentFirm || !ledgerRetailer?.id) return;
     setLedgerLoading(true);
     setLedgerLoadError(false);
@@ -95,11 +98,25 @@ export default function Reports() {
       setLedgerData(res.data);
     } catch (err) {
       setLedgerLoadError(true);
-      toast.error(err.response?.data?.error || 'Failed to load retailer ledger');
+      toastRef.current.error(err.response?.data?.error || 'Failed to load retailer ledger');
     } finally {
       setLedgerLoading(false);
     }
-  };
+  }, [currentFirm, ledgerRetailer, ledgerFrom, ledgerTo]);
+
+  const onWsMessage = useCallback((msg) => {
+    if (!retailerLedgerOpen || !ledgerRetailer?.id) return;
+    if (msg?.event === 'collection_added' && msg?.data?.retailer_id === ledgerRetailer.id) {
+      reloadRetailerLedger();
+    }
+  }, [retailerLedgerOpen, ledgerRetailer?.id, reloadRetailerLedger]);
+
+  useWebSocket({
+    tenantId: user?.tenantId,
+    firmId: currentFirm?.id,
+    enabled: !!retailerLedgerOpen && !!currentFirm,
+    onMessage: onWsMessage,
+  });
 
   if (!currentFirm) {
     return (

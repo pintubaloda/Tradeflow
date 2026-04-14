@@ -122,32 +122,100 @@ function CollectionModal({ open, onClose, onSave, retailers, agents }) {
 }
 
 function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [txns, setTxns] = useState([]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const toast = useToast();
+  const lastErrorAtRef = React.useRef(0);
+  const syncRef = React.useRef({ inFlight: false, lastAt: 0, timer: null });
+
+  const LIMIT = 100;
+
+  const fetchPage = useCallback(async (pageToLoad) => {
+    const res = await collectionAPI.list(firmId, {
+      retailerId: retailer.id,
+      from: from || undefined,
+      to: to || undefined,
+      limit: LIMIT,
+      page: pageToLoad,
+    });
+    return res.data.transactions || [];
+  }, [firmId, retailer, from, to]);
 
   const load = useCallback(async () => {
     if (!open || !retailer || !firmId) return;
     setLoading(true);
     setLoadError(false);
     try {
-      const res = await collectionAPI.list(firmId, {
-        retailerId: retailer.id,
-        from: from || undefined,
-        to: to || undefined,
-        limit: 200,
-      });
-      setTxns(res.data.transactions || []);
+      const rows = await fetchPage(1);
+      setTxns(rows);
+      setPage(1);
+      setHasMore(rows.length === LIMIT);
     } catch (err) {
       setLoadError(true);
-      toast.error(err.response?.data?.error || 'Failed to load retailer ledger');
+      const now = Date.now();
+      if (now - lastErrorAtRef.current > 2000) {
+        toast.error(err.response?.data?.error || 'Failed to load retailer ledger');
+        lastErrorAtRef.current = now;
+      }
     } finally { setLoading(false); }
-  }, [open, retailer, firmId, from, to, toast]);
+  }, [open, retailer, firmId, fetchPage, toast]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMore) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    try {
+      const rows = await fetchPage(nextPage);
+      setTxns(prev => [...prev, ...rows]);
+      setPage(nextPage);
+      setHasMore(rows.length === LIMIT);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to load more');
+    } finally { setLoadingMore(false); }
+  }, [loadingMore, loading, hasMore, page, fetchPage, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  const scheduleSync = useCallback(() => {
+    const s = syncRef.current;
+    const now = Date.now();
+    const minGap = 1500;
+    const run = async () => {
+      if (s.inFlight) return;
+      s.inFlight = true;
+      try { await load(); } finally { s.lastAt = Date.now(); s.inFlight = false; }
+    };
+
+    const elapsed = now - s.lastAt;
+    if (elapsed >= minGap) {
+      run();
+      return;
+    }
+    if (s.timer) return;
+    s.timer = setTimeout(() => {
+      s.timer = null;
+      run();
+    }, minGap - elapsed);
+  }, [load]);
+
+  const onWsMessage = useCallback((msg) => {
+    if (!open || !retailer) return;
+    if (msg?.event === 'collection_added' && msg?.data?.retailer_id === retailer.id) scheduleSync();
+  }, [open, retailer, scheduleSync]);
+
+  useWebSocket({
+    tenantId: user?.tenantId,
+    firmId,
+    enabled: !!open && !!retailer && !!firmId,
+    onMessage: onWsMessage,
+  });
 
   const totals = txns.reduce((acc, t) => {
     acc.credit += parseFloat(t.credit_amount) || 0;
@@ -171,7 +239,10 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
 
   return (
     <Modal open={open} onClose={onClose} title={`Retailer Ledger — ${retailer?.name || ''}`} size="xl"
-      footer={<Button variant="default" onClick={onClose}>Close</Button>}>
+      footer={<div className="w-full flex items-center justify-between gap-2">
+        <Button variant="default" onClick={scheduleSync} disabled={loading}>Sync</Button>
+        <Button variant="default" onClick={onClose}>Close</Button>
+      </div>}>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <StatCard label="Current outstanding" value={formatCurrency(retailer?.current_outstanding || 0)} color="red" icon="📋" />
         <StatCard label="Credit (range)" value={formatCurrency(totals.credit)} color="amber" icon="➕" />
@@ -188,10 +259,20 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
       {loading ? <div className="flex justify-center py-8"><Spinner /></div> : loadError ? (
         <div className="flex flex-col items-center py-8 gap-3">
           <p className="text-sm text-slate-500">Failed to load retailer ledger.</p>
-          <Button size="sm" variant="default" onClick={load}>Retry</Button>
+          <Button size="sm" variant="default" onClick={scheduleSync}>Retry</Button>
         </div>
       ) : (
-        <Table columns={cols} rows={txns} empty="No transactions for this retailer" />
+        <div className="space-y-3">
+          <Table columns={cols} rows={txns} empty="No transactions for this retailer" />
+          {hasMore && (
+            <div className="flex justify-center">
+              <Button variant="default" loading={loadingMore} onClick={loadMore}>Load more</Button>
+            </div>
+          )}
+          {!hasMore && txns.length >= LIMIT && (
+            <p className="text-xs text-slate-400 text-center">End of results (use date filter for older entries).</p>
+          )}
+        </div>
       )}
       <Toast toasts={toast.toasts} remove={toast.remove} />
     </Modal>

@@ -1,0 +1,58 @@
+version: '3.9'
+
+# Coolify deployment:
+# - No fixed host port mappings (Coolify's reverse-proxy handles public routing)
+# - No container_name (lets Coolify manage names)
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tradeflow
+      POSTGRES_USER: tradeflow
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/src/config/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradeflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://tradeflow:${DB_PASSWORD:-changeme}@postgres:5432/tradeflow
+      JWT_SECRET: ${JWT_SECRET:-change_this_32_char_secret_in_prod}
+      PORT: 4000
+      NODE_ENV: production
+      # Set this to your public frontend domain in Coolify env (no trailing slash)
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+    expose:
+      - "4000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # Nginx proxies /api and /ws to this backend service name
+      TRADEFLOW_BACKEND_ORIGIN: http://backend:4000
+    expose:
+      - "80"
+
+volumes:
+  pgdata:
+

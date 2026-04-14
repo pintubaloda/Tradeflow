@@ -93,6 +93,27 @@ Password for all users: `Tradeflow@12345` (or your `DEMO_PASSWORD`)
 - Viewer: `viewer@tradeflow.local`
 - Collection Boy: `collector@tradeflow.local`
 
+---
+
+## Deploy on Coolify (Self-hosted)
+
+If your server has **Coolify** installed (you wrote "collify" — assuming you mean Coolify), deploy the whole stack using Docker Compose.
+
+### Steps
+1) In Coolify: **New Project** → connect your GitHub repo.
+2) Choose **Docker Compose** and select `docker-compose.coolify.yml`.
+3) Add environment variables in Coolify:
+   - `DB_PASSWORD` = strong password
+   - `JWT_SECRET` = 32+ chars random string
+   - `FRONTEND_URL` = `https://<your-domain>` (no trailing slash)
+   - (optional demo) `DEMO_SEED=true`, `DEMO_PASSWORD=Tradeflow@12345`, `DISABLE_PAYMENT_GATE=true`
+4) In Coolify, set the public domain **on the `frontend` service** (container port `80`).
+5) Deploy.
+
+Notes:
+- API + WebSocket are served from the same domain via nginx proxy (`/api` and `/ws`), so you avoid CORS issues.
+- Postgres schema is initialized automatically on first DB start via `backend/src/config/schema.sql`.
+
 ## Manual Setup
 
 ### Prerequisites
