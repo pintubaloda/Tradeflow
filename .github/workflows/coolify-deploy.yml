@@ -20,9 +20,23 @@ jobs:
           COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
-          if [ -z "$COOLIFY_WEBHOOK" ] || [ -z "$COOLIFY_TOKEN" ]; then
-            echo "Missing COOLIFY_WEBHOOK / COOLIFY_TOKEN GitHub secrets"
+          if [ -z "$COOLIFY_WEBHOOK" ]; then
+            echo "Missing COOLIFY_WEBHOOK GitHub secret"
             exit 1
           fi
-          curl --fail --request GET "$COOLIFY_WEBHOOK" \
-            --header "Authorization: Bearer $COOLIFY_TOKEN"
+
+          # COOLIFY_TOKEN is required for "Deploy Webhook (auth required)".
+          # If your deploy webhook is not protected, you can leave it empty.
+          extra_args=()
+          if [ -n "$COOLIFY_TOKEN" ]; then
+            extra_args+=(--header "Authorization: Bearer $COOLIFY_TOKEN")
+          fi
+
+          echo "Calling Coolify deploy webhook..."
+          http_code="$(curl -sS -o /tmp/coolify_deploy.json -w "%{http_code}" --request GET "$COOLIFY_WEBHOOK" "${extra_args[@]}")"
+          echo "Coolify response HTTP $http_code"
+          cat /tmp/coolify_deploy.json || true
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            exit 1
+          fi
