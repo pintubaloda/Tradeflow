@@ -28,7 +28,7 @@ const server = http.createServer(app);
 const isProd = process.env.NODE_ENV === 'production';
 
 // Behind Railway/Nginx/etc reverse proxies, trust X-Forwarded-* for correct client IPs.
-if (isProd) app.set('trust proxy', 1);
+if (isProd) app.set('trust proxy', true);
 
 // ── SECURITY HEADERS ──────────────────────────────────────────
 app.use(helmet());
