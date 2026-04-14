@@ -119,7 +119,7 @@ Notes:
 If Coolify webhooks don’t fire reliably, this repo includes a GitHub Actions workflow that triggers a deploy on every push to `main`:
 - Workflow: `.github/workflows/coolify-deploy.yml`
 - GitHub repo secrets required:
-  - `COOLIFY_WEBHOOK` = Coolify **Deploy Webhook** URL (Application → Webhooks)
+  - `COOLIFY_WEBHOOK` = Coolify **Deploy Webhook** URL (recommended with a self-hosted runner: use `http://127.0.0.1:8000/api/v1/deploy?...` so it works even if port 8000 is firewalled)
   - `COOLIFY_TOKEN` = Coolify API token with **Deploy** permission (Coolify → Keys & Tokens → API Tokens)
 
 ## Manual Setup

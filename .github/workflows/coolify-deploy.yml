@@ -11,7 +11,9 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Runs on your own server (GitHub Actions self-hosted runner).
+    # Add a runner label like "coolify" and keep it online.
+    runs-on: [self-hosted, coolify]
     steps:
       - name: Trigger Coolify deployment webhook
         env:
@@ -24,4 +26,3 @@ jobs:
           fi
           curl --fail --request GET "$COOLIFY_WEBHOOK" \
             --header "Authorization: Bearer $COOLIFY_TOKEN"
-
