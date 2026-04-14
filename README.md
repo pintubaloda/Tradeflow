@@ -115,6 +115,13 @@ Notes:
 - Postgres schema is initialized automatically on first DB start via `backend/src/config/schema.sql`.
 - To auto-deploy on every GitHub push, enable **Auto Deploy** in Coolify for this project (creates/uses a GitHub webhook).
 
+### Auto deploy via GitHub Actions (recommended fallback)
+If Coolify webhooks don’t fire reliably, this repo includes a GitHub Actions workflow that triggers a deploy on every push to `main`:
+- Workflow: `.github/workflows/coolify-deploy.yml`
+- GitHub repo secrets required:
+  - `COOLIFY_WEBHOOK` = Coolify **Deploy Webhook** URL (Application → Webhooks)
+  - `COOLIFY_TOKEN` = Coolify API token with **Deploy** permission (Coolify → Keys & Tokens → API Tokens)
+
 ## Manual Setup
 
 ### Prerequisites

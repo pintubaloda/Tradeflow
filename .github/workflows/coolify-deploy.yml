@@ -1,0 +1,27 @@
+name: Deploy to Coolify
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: coolify-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Coolify deployment webhook
+        env:
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          if [ -z "$COOLIFY_WEBHOOK" ] || [ -z "$COOLIFY_TOKEN" ]; then
+            echo "Missing COOLIFY_WEBHOOK / COOLIFY_TOKEN GitHub secrets"
+            exit 1
+          fi
+          curl --fail --request GET "$COOLIFY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN"
+
