@@ -57,6 +57,25 @@ services:
       TRADEFLOW_BACKEND_ORIGIN: http://backend:4000
     expose:
       - "80"
+    # If Coolify UI does not expose domain/proxy fields for Compose resources,
+    # these Traefik labels make the app reachable via Coolify proxy.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tradeflow-http.rule=Host(`${FRONTEND_DOMAIN:-tradeflow.compucon.in}`)"
+      - "traefik.http.routers.tradeflow-http.entrypoints=web"
+      - "traefik.http.routers.tradeflow-http.middlewares=tradeflow-https@docker"
+      - "traefik.http.middlewares.tradeflow-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.tradeflow.rule=Host(`${FRONTEND_DOMAIN:-tradeflow.compucon.in}`)"
+      - "traefik.http.routers.tradeflow.entrypoints=websecure"
+      - "traefik.http.routers.tradeflow.tls=true"
+      - "traefik.http.services.tradeflow.loadbalancer.server.port=80"
+    networks:
+      - default
+      - coolify
 
 volumes:
   pgdata:
+
+networks:
+  coolify:
+    external: true

@@ -112,6 +112,7 @@ If your server has **Coolify** installed (you wrote "collify" — assuming you m
    - `DB_PASSWORD` = strong password
    - `JWT_SECRET` = 32+ chars random string
    - `FRONTEND_URL` = `https://tradeflow.compucon.in` (or your domain; no trailing slash)
+   - `FRONTEND_DOMAIN` = `tradeflow.compucon.in` (optional; used for Traefik labels when deploying via Compose)
    - (demo) `DEMO_PASSWORD=Tradeflow@12345` (or set your own)
    - (optional) `DISABLE_PAYMENT_GATE=true` (lets you activate paid modules without `paymentConfirmed`)
 4) In Coolify, set the public domain **on the `frontend` service** (container port `80`).
