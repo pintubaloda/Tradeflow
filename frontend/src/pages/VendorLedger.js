@@ -245,7 +245,7 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
   const handleAddTxn = async (form) => {
     await vendorAPI.addTxn(firmId, vendor.id, {
       txnDate: form.txnDate, txnType: form.txnType,
-      amount: parseFloat(form.amount), mnpAmount: 0,
+      amount: parseFloat(form.amount),
       referenceNo: form.referenceNo, notes: form.notes,
     });
     toast.success('Transaction added');
@@ -262,7 +262,6 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
       txnDate: form.txnDate,
       txnType: form.txnType,
       amount: parseFloat(form.amount) || 0,
-      mnpAmount: 0,
       referenceNo: form.referenceNo,
       notes: form.notes,
     });

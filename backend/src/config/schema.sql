@@ -116,13 +116,12 @@ CREATE TABLE vendor_transactions (
   firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
   vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
   txn_date DATE NOT NULL,
-  txn_type VARCHAR(20) NOT NULL, -- 'advance','debit','credit','mnp'
-  -- advance = 1st payment DR, debit = 2nd+ payment DR, credit = received CR, mnp = adjustment
+  txn_type VARCHAR(20) NOT NULL, -- 'advance','debit','credit'
+  -- advance = 1st payment DR, debit = 2nd+ payment DR, credit = received CR
   amount DECIMAL(14,2) NOT NULL DEFAULT 0,
-  mnp_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   opening_balance DECIMAL(14,2) NOT NULL DEFAULT 0,
   closing_balance DECIMAL(14,2) NOT NULL DEFAULT 0,
-  -- closing = opening + DR - CR + MNP
+  -- closing = opening + DR - CR
   reference_no VARCHAR(50),
   notes TEXT,
   created_by UUID REFERENCES users(id),

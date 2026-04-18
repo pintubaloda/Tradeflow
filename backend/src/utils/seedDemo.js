@@ -13,8 +13,8 @@ const getPlanWithClient = async (client, name) => {
   return res.rows[0] || null;
 };
 
-const seedDemo = async () => {
-  if (process.env.DEMO_SEED !== 'true') return;
+const seedDemo = async ({ force = false } = {}) => {
+  if (!force && process.env.DEMO_SEED !== 'true') return;
 
   const demoPassword = process.env.DEMO_PASSWORD || 'Tradeflow@12345';
   const tenantName = process.env.DEMO_TENANT_NAME || 'TradeFlow Demo';
@@ -123,8 +123,8 @@ const seedDemo = async () => {
       const addVendorTxn = async (vendorId, txnType, amount, opening, closing) => {
         await client.query(
           `INSERT INTO vendor_transactions
-            (firm_id, vendor_id, txn_date, txn_type, amount, mnp_amount, opening_balance, closing_balance, reference_no, notes, created_by)
-           VALUES ($1,$2,$3,$4,$5,0,$6,$7,null,null,$8)`,
+            (firm_id, vendor_id, txn_date, txn_type, amount, opening_balance, closing_balance, reference_no, notes, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,null,null,$8)`,
           [firmId, vendorId, today, txnType, amount, opening, closing, uAdmin.id]
         );
       };

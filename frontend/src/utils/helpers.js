@@ -19,7 +19,9 @@ export const getInitials = (name = '') =>
   name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
 
 export const txnTypeLabel = (type) => ({
-  advance: 'Advance', debit: 'Debit', credit: 'Received', mnp: 'MNP',
+  advance: 'Advance', debit: 'Debit', credit: 'Received',
+  // Backward-compat: old data may still include 'mnp'
+  mnp: 'Adjustment',
 }[type] || type);
 
 export const txnTypeColor = (type) => ({

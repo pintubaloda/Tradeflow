@@ -93,6 +93,12 @@ Password for all users: `Tradeflow@12345` (or your `DEMO_PASSWORD`)
 - Viewer: `viewer@tradeflow.local`
 - Collection Boy: `collector@tradeflow.local`
 
+Seed options:
+- **On startup**: set backend env `DEMO_SEED=true` and restart the backend.
+- **One-time URL** (recommended for new server): set backend env `DEMO_SEED_ENDPOINT=true` and `SEED_TOKEN`, then call:
+  - `POST /api/admin/demo-seed` with header `x-seed-token: <SEED_TOKEN>`
+  - Example: `curl -X POST https://<your-domain>/api/admin/demo-seed -H "x-seed-token: <SEED_TOKEN>"`
+
 ---
 
 ## Deploy on Coolify (Self-hosted)
@@ -253,7 +259,7 @@ One user → many `user_firm_access` rows → many firms.
 ## Ledger Balance Formula
 
 ```
-Closing = Opening + DR (advance/debit) − CR (received) + MNP
+Closing = Opening + DR (advance/debit) − CR (received)
 ```
 
 Transactions are stored sequentially. The closing balance of each row becomes the opening of the next. Only the **most recent transaction** can be deleted (to preserve ledger integrity).

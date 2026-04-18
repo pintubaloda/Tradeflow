@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { collectionAPI } from '../services/api';
 import {
   Button, Input, Select, Modal, Badge, Table, StatCard, Card,
-  EmptyState, useToast, Toast, Spinner, Avatar
+  EmptyState, useToast, Toast, Spinner, Avatar, ConfirmDialog
 } from '../components/common';
 import { formatCurrency, formatDate, today, paymentModeLabel, debounce } from '../utils/helpers';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -131,6 +131,14 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [editTxn, setEditTxn] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editErrors, setEditErrors] = useState({});
+  const [editForm, setEditForm] = useState({ txnDate: today(), creditAmount: '0', collectedAmount: '0', paymentMode: 'cash', referenceNo: '', notes: '' });
+  const [deleteTxn, setDeleteTxn] = useState(null);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadFormat, setDownloadFormat] = useState('pdf'); // pdf | xls
   const toast = useToast();
   const lastErrorAtRef = React.useRef(0);
   const syncRef = React.useRef({ inFlight: false, lastAt: 0, timer: null });
@@ -183,6 +191,120 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!editOpen || !editTxn) return;
+    setEditErrors({});
+    setEditForm({
+      txnDate: (editTxn.txn_date || today()).slice(0, 10),
+      creditAmount: String(editTxn.credit_amount ?? '0'),
+      collectedAmount: String(editTxn.collected_amount ?? '0'),
+      paymentMode: editTxn.payment_mode || 'cash',
+      referenceNo: editTxn.reference_no || '',
+      notes: editTxn.notes || '',
+    });
+  }, [editOpen, editTxn]);
+
+  const ledgerTitle = `Retailer Ledger — ${retailer?.name || ''}`;
+  const rangeLabel = `${from || 'All'} → ${to || 'All'}`;
+
+  const escapeCsv = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  const downloadXls = () => {
+    const rows = txns || [];
+    const header = ['Date', 'Collected By', 'Credit', 'Collected', 'Balance', 'Mode', 'Notes'];
+    const lines = [header.join(',')];
+    rows.forEach((r) => {
+      lines.push([
+        (r.txn_date || '').slice(0, 10),
+        r.collector_name || '',
+        r.credit_amount || '',
+        r.collected_amount || '',
+        r.outstanding_after || '',
+        paymentModeLabel(r.payment_mode) || '',
+        r.notes || '',
+      ].map(escapeCsv).join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const a = document.createElement('a');
+    const safeName = (retailer?.name || 'retailer-ledger').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${safeName}-ledger.xls`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+
+  const downloadPdf = () => {
+    const rows = txns || [];
+    const w = window.open('', '_blank', 'noopener,noreferrer');
+    if (!w) { toast.error('Popup blocked. Allow popups to download PDF.'); return; }
+    const style = `
+      <style>
+        body{font-family:Inter,system-ui,Arial;margin:24px;color:#111827}
+        h1{font-size:16px;margin:0 0 6px}
+        .meta{font-size:12px;color:#6b7280;margin-bottom:14px}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th,td{border-bottom:1px solid #e5e7eb;padding:8px 6px;text-align:left;vertical-align:top}
+        th{color:#6b7280;text-transform:uppercase;letter-spacing:.06em;font-size:10px}
+        .num{text-align:right;font-variant-numeric:tabular-nums}
+      </style>
+    `;
+    const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const htmlRows = rows.map((r) => {
+      return `
+        <tr>
+          <td>${formatDate(r.txn_date)}</td>
+          <td>${esc(r.collector_name || '')}</td>
+          <td class="num">${(parseFloat(r.credit_amount) || 0) > 0 ? formatCurrency(r.credit_amount) : '—'}</td>
+          <td class="num">${(parseFloat(r.collected_amount) || 0) > 0 ? formatCurrency(r.collected_amount) : '—'}</td>
+          <td class="num">${formatCurrency(r.outstanding_after)}</td>
+          <td>${paymentModeLabel(r.payment_mode) || '—'}</td>
+          <td>${esc(r.notes || '')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    w.document.write(`
+      <html><head><title>${ledgerTitle}</title>${style}</head>
+      <body>
+        <h1>${ledgerTitle}</h1>
+        <div class="meta">${rangeLabel}</div>
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Collected By</th><th class="num">Credit</th><th class="num">Collected</th><th class="num">Balance</th><th>Mode</th><th>Notes</th>
+          </tr></thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+        <script>window.onload=()=>{window.print();}</script>
+      </body></html>
+    `);
+    w.document.close();
+  };
+
+  const shareLedger = async () => {
+    const text = `${ledgerTitle}\n${rangeLabel}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: ledgerTitle, text, url: window.location.href });
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(`${text}\n${window.location.href}`);
+        toast.success('Ledger link copied');
+        return;
+      }
+      toast.info(text);
+    } catch (_) {
+      toast.error('Share failed');
+    }
+  };
+
   const scheduleSync = useCallback(() => {
     const s = syncRef.current;
     const now = Date.now();
@@ -207,7 +329,9 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
 
   const onWsMessage = useCallback((msg) => {
     if (!open || !retailer) return;
-    if (msg?.event === 'collection_added' && msg?.data?.retailer_id === retailer.id) scheduleSync();
+    if (['collection_added', 'collection_updated', 'collection_deleted'].includes(msg?.event) && msg?.data?.retailer_id === retailer.id) {
+      scheduleSync();
+    }
   }, [open, retailer, scheduleSync]);
 
   useWebSocket({
@@ -223,6 +347,68 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
     return acc;
   }, { credit: 0, collected: 0 });
 
+  const latestTxnId = txns?.length ? txns[0].id : null;
+  const canModifyTxn = (t) => {
+    if (!t?.id || t.id !== latestTxnId) return false;
+    if (user?.role === 'viewer') return false;
+    if (user?.role === 'collection_boy') {
+      if (t.collected_by !== user?.id) return false;
+      if ((parseFloat(t.credit_amount) || 0) > 0) return false;
+    }
+    return true;
+  };
+
+  const handleSaveTxn = async (payload) => {
+    if (!editTxn) return;
+    try {
+      await collectionAPI.updateTxn(firmId, editTxn.id, payload);
+      toast.success('Transaction updated');
+      setEditOpen(false);
+      setEditTxn(null);
+      scheduleSync();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update transaction');
+    }
+  };
+
+  const handleDeleteTxn = async () => {
+    if (!deleteTxn) return;
+    try {
+      await collectionAPI.deleteTxn(firmId, deleteTxn.id);
+      toast.success('Transaction deleted');
+      setDeleteTxn(null);
+      scheduleSync();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete transaction');
+    }
+  };
+
+  const submitEdit = async () => {
+    const errs = {};
+    if (!editForm.txnDate) errs.txnDate = 'Date required';
+    const credit = user?.role === 'collection_boy' ? 0 : (parseFloat(editForm.creditAmount) || 0);
+    const collected = parseFloat(editForm.collectedAmount) || 0;
+    if (credit < 0) errs.creditAmount = 'Must be >= 0';
+    if (collected < 0) errs.collectedAmount = 'Must be >= 0';
+    if (credit === 0 && collected === 0) errs.collectedAmount = 'Enter credit or collected amount';
+    setEditErrors(errs);
+    if (Object.keys(errs).length) return;
+
+    setEditSaving(true);
+    try {
+      await handleSaveTxn({
+        txnDate: editForm.txnDate,
+        creditAmount: credit,
+        collectedAmount: collected,
+        paymentMode: editForm.paymentMode,
+        referenceNo: editForm.referenceNo,
+        notes: editForm.notes,
+      });
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const cols = [
     { key: 'txn_date', label: 'Date', render: v => formatDate(v) },
     { key: 'collector_name', label: 'Collected by', render: (v) => (
@@ -235,12 +421,32 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
     )},
     { key: 'payment_mode', label: 'Mode', render: v => <Badge color="gray">{paymentModeLabel(v)}</Badge> },
     { key: 'notes', label: 'Notes', render: v => <span className="text-slate-400 text-xs">{v || '—'}</span> },
+    {
+      key: '_actions',
+      label: '',
+      className: 'text-right',
+      cellClass: 'text-right',
+      render: (_, r) => (
+        <div className="flex items-center justify-end gap-1">
+          {canModifyTxn(r) && (
+            <>
+              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEditTxn(r); setEditOpen(true); }}>Edit</Button>
+              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setDeleteTxn(r); }}>Delete</Button>
+            </>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
-    <Modal open={open} onClose={onClose} title={`Retailer Ledger — ${retailer?.name || ''}`} size="xl"
+    <Modal open={open} onClose={onClose} title={ledgerTitle} size="xl"
       footer={<div className="w-full flex items-center justify-between gap-2">
-        <Button variant="default" onClick={scheduleSync} disabled={loading}>Sync</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="default" onClick={scheduleSync} disabled={loading}>Sync</Button>
+          <Button variant="default" onClick={shareLedger} disabled={loading}>Share</Button>
+          <Button variant="default" onClick={() => setDownloadOpen(true)} disabled={loading || !txns?.length}>Download</Button>
+        </div>
         <Button variant="default" onClick={onClose}>Close</Button>
       </div>}>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -274,6 +480,77 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
           )}
         </div>
       )}
+
+      <Modal
+        open={downloadOpen}
+        onClose={() => setDownloadOpen(false)}
+        title="Download ledger"
+        size="sm"
+        footer={<>
+          <Button variant="default" onClick={() => setDownloadOpen(false)}>Cancel</Button>
+          <Button variant="primary" onClick={() => {
+            setDownloadOpen(false);
+            if (downloadFormat === 'xls') downloadXls();
+            else downloadPdf();
+          }}>Download</Button>
+        </>}
+      >
+        <Select label="Format" value={downloadFormat} onChange={e => setDownloadFormat(e.target.value)}>
+          <option value="pdf">PDF</option>
+          <option value="xls">XLS</option>
+        </Select>
+        <p className="text-xs text-slate-400 mt-2">PDF uses the browser print dialog.</p>
+      </Modal>
+
+      <Modal
+        open={editOpen}
+        onClose={() => { setEditOpen(false); setEditTxn(null); }}
+        title="Edit transaction"
+        size="md"
+        footer={<>
+          <Button variant="default" onClick={() => { setEditOpen(false); setEditTxn(null); }}>Cancel</Button>
+          <Button variant="primary" loading={editSaving} onClick={submitEdit}>Save</Button>
+        </>}
+      >
+        <div className="space-y-3">
+          <Input label="Date" type="date" value={editForm.txnDate} onChange={e => setEditForm(p => ({ ...p, txnDate: e.target.value }))} error={editErrors.txnDate} />
+          {user?.role !== 'collection_boy' && (
+            <Input label="Credit (₹)" type="number" min="0" step="0.01"
+              value={editForm.creditAmount}
+              onChange={e => setEditForm(p => ({ ...p, creditAmount: e.target.value }))}
+              error={editErrors.creditAmount}
+              prefix="₹"
+            />
+          )}
+          <Input label="Collected (₹)" type="number" min="0" step="0.01"
+            value={editForm.collectedAmount}
+            onChange={e => setEditForm(p => ({ ...p, collectedAmount: e.target.value }))}
+            error={editErrors.collectedAmount}
+            prefix="₹"
+          />
+          <Select label="Payment mode" value={editForm.paymentMode} onChange={e => setEditForm(p => ({ ...p, paymentMode: e.target.value }))}>
+            <option value="cash">Cash</option>
+            <option value="upi">UPI</option>
+            <option value="cheque">Cheque</option>
+            <option value="bank">Bank</option>
+            <option value="credit">Credit</option>
+          </Select>
+          <Input label="Reference no." value={editForm.referenceNo} onChange={e => setEditForm(p => ({ ...p, referenceNo: e.target.value }))} />
+          <Input label="Notes" value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} />
+          <p className="text-xs text-slate-400">Only the most recent transaction can be edited to preserve ledger integrity.</p>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!deleteTxn}
+        onClose={() => setDeleteTxn(null)}
+        onConfirm={handleDeleteTxn}
+        title="Delete transaction?"
+        message="This will delete the most recent transaction and update the retailer outstanding balance. This action cannot be undone."
+        confirmLabel="Delete"
+        danger
+      />
+
       <Toast toasts={toast.toasts} remove={toast.remove} />
     </Modal>
   );
@@ -352,9 +629,9 @@ export default function MarketCollection() {
   const [searchRetailer, setSearchRetailer] = useState('');
   const [loadError, setLoadError] = useState(false);
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async ({ silent = false } = {}) => {
     if (!currentFirm) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setLoadError(false);
     try {
       const [rRes, cRes, aRes, oRes] = await Promise.all([
@@ -370,17 +647,33 @@ export default function MarketCollection() {
       setOutstanding(oRes.data || []);
     } catch (_) {
       setLoadError(true);
-    } finally { setLoading(false); }
+    } finally { if (!silent) setLoading(false); }
   }, [currentFirm]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  const syncAllRef = React.useRef({ inFlight: false, lastAt: 0, timer: null });
+  const scheduleLoadAll = useCallback(() => {
+    const s = syncAllRef.current;
+    const now = Date.now();
+    const minGap = 1500;
+    const run = async () => {
+      if (s.inFlight) return;
+      s.inFlight = true;
+      try { await loadAll({ silent: true }); } finally { s.lastAt = Date.now(); s.inFlight = false; }
+    };
+    const elapsed = now - s.lastAt;
+    if (elapsed >= minGap) { run(); return; }
+    if (s.timer) return;
+    s.timer = setTimeout(() => { s.timer = null; run(); }, minGap - elapsed);
+  }, [loadAll]);
 
   useWebSocket({
     tenantId: user?.tenantId,
     firmId: currentFirm?.id,
     enabled: !!currentFirm && hasModule('market_collection'),
     onMessage: (msg) => {
-      if (msg.event === 'collection_added') loadAll();
+      if (['collection_added', 'collection_updated', 'collection_deleted'].includes(msg?.event)) scheduleLoadAll();
     },
   });
 
@@ -484,6 +777,7 @@ export default function MarketCollection() {
           <p className="text-sm text-slate-500">Retailer credit & real-time agent collections · <span className="text-emerald-500 font-medium">● Live sync</span></p>
         </div>
         <div className="flex gap-2">
+          <Button variant="default" size="sm" onClick={() => loadAll()}>Sync</Button>
           <Button variant="default" size="sm" onClick={() => { setEditRetailer(null); setRetailerModal(true); }}>+ Retailer</Button>
           {canPostOutstanding && <Button variant="primary" size="sm" onClick={() => setOutstandingModal(true)}>+ Add outstanding</Button>}
           <Button variant="success" size="sm" onClick={() => setCollectionModal(true)}>+ Record collection</Button>

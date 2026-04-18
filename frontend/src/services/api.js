@@ -99,6 +99,8 @@ export const collectionAPI = {
   updateRetailer: (firmId, id, d) => api.put(`/firms/${firmId}/retailers/${id}`, d),
   list: (firmId, p) => api.get(`/firms/${firmId}/collections`, { params: p }),
   add: (firmId, d) => api.post(`/firms/${firmId}/collections`, d),
+  updateTxn: (firmId, txnId, d) => api.put(`/firms/${firmId}/collections/${txnId}`, d),
+  deleteTxn: (firmId, txnId) => api.delete(`/firms/${firmId}/collections/${txnId}`),
   agents: (firmId, date) => api.get(`/firms/${firmId}/collection/agents`, { params: { date } }),
   outstanding: (firmId) => api.get(`/firms/${firmId}/collection/outstanding`),
 };

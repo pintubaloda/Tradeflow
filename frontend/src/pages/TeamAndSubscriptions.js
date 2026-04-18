@@ -208,7 +208,7 @@ export function SubscriptionsPage() {
   };
 
   const MODULES = [
-    { key: 'vendor_ledger', name: 'Vendor Ledger', icon: '📒', price: 0, desc: 'POS transactions, advance/debit/credit/MNP tracking, full partner ledger.' },
+    { key: 'vendor_ledger', name: 'Vendor Ledger', icon: '📒', price: 0, desc: 'POS transactions, advance/debit/credit tracking, full partner ledger.' },
     { key: 'market_collection', name: 'Market Collection', icon: '🤝', price: 499, desc: 'Retailer credit management, real-time collection agent tracking, live sync.' },
     { key: 'reports', name: 'Reports & Analytics', icon: '📊', price: 299, desc: 'Monthly P&L, vendor/retailer reports, export to PDF & Excel.' },
   ];

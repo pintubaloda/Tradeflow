@@ -9,9 +9,12 @@ const collectionCtrl = require('../controllers/collectionController');
 const userCtrl = require('../controllers/userController');
 const subCtrl = require('../controllers/subscriptionController');
 const reportCtrl = require('../controllers/reportController');
+const adminCtrl = require('../controllers/adminController');
 const { authenticate, requireFirmAccess, requireModule, requireRole } = require('../middleware/auth');
 
 // ── AUTH ──────────────────────────────────────────────────────
+router.post('/admin/demo-seed', adminCtrl.demoSeed);
+
 router.post('/auth/register',
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 8 }),
@@ -88,7 +91,6 @@ router.put('/firms/:firmId/vendors/:vendorId/transactions/:txnId',
   body('txnDate').isDate(),
   body('txnType').isIn(['advance','debit','credit']),
   body('amount').isFloat({ min: 0 }),
-  body('mnpAmount').optional().isFloat({ min: 0 }),
   vendorCtrl.updateTransaction
 );
 router.delete('/firms/:firmId/vendors/:vendorId/transactions/:txnId',
@@ -123,6 +125,18 @@ router.post('/firms/:firmId/collections',
   body('collectedAmount').optional().isFloat({ min: 0 }),
   body('paymentMode').optional().isIn(['cash','upi','cheque','bank','credit']),
   collectionCtrl.addCollection
+);
+router.put('/firms/:firmId/collections/:txnId',
+  authenticate, requireFirmAccess, requireModule('market_collection'),
+  body('txnDate').isDate(),
+  body('creditAmount').optional().isFloat({ min: 0 }),
+  body('collectedAmount').optional().isFloat({ min: 0 }),
+  body('paymentMode').optional().isIn(['cash','upi','cheque','bank','credit']),
+  collectionCtrl.updateCollection
+);
+router.delete('/firms/:firmId/collections/:txnId',
+  authenticate, requireFirmAccess, requireModule('market_collection'),
+  collectionCtrl.deleteCollection
 );
 router.get('/firms/:firmId/collection/agents',
   authenticate, requireFirmAccess, requireModule('market_collection'),

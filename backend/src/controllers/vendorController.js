@@ -115,7 +115,7 @@ const addTransaction = async (req, res, next) => {
   try {
     await client.query('BEGIN');
 
-    const { txnDate, txnType, amount, mnpAmount, referenceNo, notes } = req.body;
+    const { txnDate, txnType, amount, referenceNo, notes } = req.body;
     const vendorId = req.params.vendorId;
 
     // Verify vendor belongs to firm (inside transaction with row lock)
@@ -139,19 +139,17 @@ const addTransaction = async (req, res, next) => {
       : parseFloat(vendor.rows[0].opening_balance);
 
     const amt = parseFloat(amount) || 0;
-    const mnp = parseFloat(mnpAmount) || 0;
 
-    // Compute closing: opening + DR - CR + MNP
+    // Compute closing: opening + DR - CR
     let closingBal = openingBal;
     if (txnType === 'advance' || txnType === 'debit') closingBal += amt;
     else if (txnType === 'credit') closingBal -= amt;
-    closingBal += mnp;
 
     const result = await client.query(
       `INSERT INTO vendor_transactions
-         (firm_id, vendor_id, txn_date, txn_type, amount, mnp_amount, opening_balance, closing_balance, reference_no, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [req.firmId, vendorId, txnDate, txnType, amt, mnp, openingBal, closingBal, referenceNo||null, notes||null, req.user.id]
+         (firm_id, vendor_id, txn_date, txn_type, amount, opening_balance, closing_balance, reference_no, notes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [req.firmId, vendorId, txnDate, txnType, amt, openingBal, closingBal, referenceNo||null, notes||null, req.user.id]
     );
 
     await client.query('COMMIT');
@@ -225,7 +223,7 @@ const updateTransaction = async (req, res, next) => {
       [req.params.vendorId, req.params.txnId]
     );
 
-    const { txnDate, txnType, amount, mnpAmount, referenceNo, notes } = req.body;
+    const { txnDate, txnType, amount, referenceNo, notes } = req.body;
     if (prev.rows.length) {
       const prevDate = prev.rows[0].txn_date;
       if (new Date(txnDate).getTime() < new Date(prevDate).getTime()) {
@@ -236,21 +234,19 @@ const updateTransaction = async (req, res, next) => {
 
     const openingBal = parseFloat(txn.rows[0].opening_balance);
     const amt = parseFloat(amount) || 0;
-    const mnp = parseFloat(mnpAmount) || 0;
 
-    // Compute closing: opening + DR - CR + MNP
+    // Compute closing: opening + DR - CR
     let closingBal = openingBal;
     if (txnType === 'advance' || txnType === 'debit') closingBal += amt;
     else if (txnType === 'credit') closingBal -= amt;
-    closingBal += mnp;
 
     const updated = await client.query(
       `UPDATE vendor_transactions
-       SET txn_date=$1, txn_type=$2, amount=$3, mnp_amount=$4,
-           closing_balance=$5, reference_no=$6, notes=$7, updated_at=NOW()
-       WHERE id=$8
+       SET txn_date=$1, txn_type=$2, amount=$3,
+           closing_balance=$4, reference_no=$5, notes=$6, updated_at=NOW()
+       WHERE id=$7
        RETURNING *`,
-      [txnDate, txnType, amt, mnp, closingBal, referenceNo || null, notes || null, req.params.txnId]
+      [txnDate, txnType, amt, closingBal, referenceNo || null, notes || null, req.params.txnId]
     );
 
     await client.query('COMMIT');
