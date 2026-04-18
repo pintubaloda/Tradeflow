@@ -64,6 +64,7 @@ psql "$DATABASE_URL" -f backend/src/config/schema.sql
 - **Root Directory**: `backend`
 - **Variables**:
   - `DATABASE_URL` = Railway Postgres `DATABASE_URL`
+  - (optional) `DATABASE_SSL=true` if your Postgres provider requires SSL (local Docker Postgres does not)
   - `JWT_SECRET` = 32+ chars random
   - `NODE_ENV` = `production`
   - `FRONTEND_URL` = `https://<your-frontend-domain>` (must match browser Origin exactly; no trailing slash)
