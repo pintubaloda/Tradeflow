@@ -142,22 +142,24 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
   const toast = useToast();
   const lastErrorAtRef = React.useRef(0);
   const syncRef = React.useRef({ inFlight: false, lastAt: 0, timer: null });
+  const retailerId = retailer?.id || null;
+  const loadRef = React.useRef(null);
 
   const LIMIT = 100;
 
   const fetchPage = useCallback(async (pageToLoad) => {
     const res = await collectionAPI.list(firmId, {
-      retailerId: retailer.id,
+      retailerId,
       from: from || undefined,
       to: to || undefined,
       limit: LIMIT,
       page: pageToLoad,
     });
     return res.data.transactions || [];
-  }, [firmId, retailer, from, to]);
+  }, [firmId, retailerId, from, to]);
 
   const load = useCallback(async () => {
-    if (!open || !retailer || !firmId) return;
+    if (!open || !retailerId || !firmId) return;
     setLoading(true);
     setLoadError(false);
     try {
@@ -173,7 +175,7 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
         lastErrorAtRef.current = now;
       }
     } finally { setLoading(false); }
-  }, [open, retailer, firmId, fetchPage, toast]);
+  }, [open, retailerId, firmId, fetchPage, toast]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || loading || !hasMore) return;
@@ -189,7 +191,14 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
     } finally { setLoadingMore(false); }
   }, [loadingMore, loading, hasMore, page, fetchPage, toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadRef.current = load; }, [load]);
+
+  // Load once on open or retailer switch.
+  // Do NOT auto-reload on every parent re-render (live list refresh) or while user adjusts date filters.
+  useEffect(() => {
+    if (!open || !retailerId || !firmId) return;
+    loadRef.current?.();
+  }, [open, retailerId, firmId]);
 
   useEffect(() => {
     if (!editOpen || !editTxn) return;
@@ -312,7 +321,7 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
     const run = async () => {
       if (s.inFlight) return;
       s.inFlight = true;
-      try { await load(); } finally { s.lastAt = Date.now(); s.inFlight = false; }
+      try { await loadRef.current?.(); } finally { s.lastAt = Date.now(); s.inFlight = false; }
     };
 
     const elapsed = now - s.lastAt;
@@ -325,19 +334,19 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
       s.timer = null;
       run();
     }, minGap - elapsed);
-  }, [load]);
+  }, []);
 
   const onWsMessage = useCallback((msg) => {
-    if (!open || !retailer) return;
-    if (['collection_added', 'collection_updated', 'collection_deleted'].includes(msg?.event) && msg?.data?.retailer_id === retailer.id) {
+    if (!open || !retailerId) return;
+    if (['collection_added', 'collection_updated', 'collection_deleted'].includes(msg?.event) && msg?.data?.retailer_id === retailerId) {
       scheduleSync();
     }
-  }, [open, retailer, scheduleSync]);
+  }, [open, retailerId, scheduleSync]);
 
   useWebSocket({
     tenantId: user?.tenantId,
     firmId,
-    enabled: !!open && !!retailer && !!firmId,
+    enabled: !!open && !!retailerId && !!firmId,
     onMessage: onWsMessage,
   });
 
