@@ -61,6 +61,10 @@ services:
     # these Traefik labels make the app reachable via Coolify proxy.
     labels:
       - "traefik.enable=true"
+      # IMPORTANT: container is attached to 2 networks (default + coolify).
+      # Tell Traefik/Coolify proxy which one to use, otherwise it can pick the wrong one
+      # and show "no available server".
+      - "traefik.docker.network=coolify"
       - "traefik.http.routers.tradeflow-http.rule=Host(`${FRONTEND_DOMAIN:-tradeflow.compucon.in}`)"
       - "traefik.http.routers.tradeflow-http.entrypoints=web"
       - "traefik.http.routers.tradeflow-http.middlewares=tradeflow-https@docker"
