@@ -11,6 +11,7 @@ const errorHandler = require('./middleware/errorHandler');
 const wsManager = require('./utils/wsManager');
 const seedDemo = require('./utils/seedDemo');
 const initDb = require('./utils/initDb');
+const { pool } = require('./config/db');
 
 // ── STARTUP VALIDATION ────────────────────────────────────────
 // FIX SECURITY: Fail fast if critical env vars are missing
@@ -93,8 +94,16 @@ app.use((req, res, next) => {
 // ── ROUTES ────────────────────────────────────────────────────
 app.use('/api', routes);
 
-// Health check (no sensitive info)
+// Health checks (no sensitive info)
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('select 1');
+    return res.json({ status: 'ok' });
+  } catch (_) {
+    return res.status(500).json({ status: 'error' });
+  }
+});
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
