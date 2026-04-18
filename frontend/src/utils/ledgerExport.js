@@ -14,6 +14,14 @@ const asNumber = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const fmt2 = (n) => asNumber(n).toFixed(2);
+const fmtDrCr = (n) => {
+  const v = asNumber(n);
+  const abs = Math.abs(v).toFixed(2);
+  // Tally-style: show Dr for positive, Cr for negative
+  return `${abs} ${v >= 0 ? 'Dr' : 'Cr'}`;
+};
+
 export const buildRetailerTallyRows = (txns = []) => {
   const sorted = [...txns].sort((a, b) => {
     const da = String(a.txn_date || '').slice(0, 10);
@@ -37,6 +45,9 @@ export const buildRetailerTallyRows = (txns = []) => {
       debit,
       credit,
       balance: asNumber(t.outstanding_after),
+      debitStr: fmt2(debit),
+      creditStr: fmt2(credit),
+      balanceStr: fmtDrCr(asNumber(t.outstanding_after)),
       mode: t.payment_mode || '',
       notes: t.notes || '',
     };
@@ -69,6 +80,9 @@ export const buildVendorTallyRows = (txns = []) => {
       debit,
       credit,
       balance: asNumber(t.closing_balance),
+      debitStr: fmt2(debit),
+      creditStr: fmt2(credit),
+      balanceStr: fmtDrCr(asNumber(t.closing_balance)),
       notes: t.notes || '',
     };
   });
@@ -139,4 +153,3 @@ export const shareLedgerPdf = async ({ fileName, title, text, ...opts }) => {
   }
   return false;
 };
-

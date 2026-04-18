@@ -71,8 +71,13 @@ export default api;
 export const authAPI = {
   register: (d) => api.post('/auth/register', d),
   login: (d) => api.post('/auth/login', d),
+  login2fa: (d) => api.post('/auth/login-2fa', d),
   logout: (d) => api.post('/auth/logout', d),
   me: () => api.get('/auth/me'),
+  twofaSetup: () => api.post('/auth/2fa/setup'),
+  twofaEnable: (d) => api.post('/auth/2fa/enable', d),
+  twofaDisable: (d) => api.post('/auth/2fa/disable', d),
+  twofaRegenerateBackupCodes: (d) => api.post('/auth/2fa/backup-codes/regenerate', d),
 };
 
 export const firmAPI = {
@@ -102,6 +107,9 @@ export const collectionAPI = {
   updateTxn: (firmId, txnId, d) => api.put(`/firms/${firmId}/collections/${txnId}`, d),
   deleteTxn: (firmId, txnId) => api.delete(`/firms/${firmId}/collections/${txnId}`),
   agents: (firmId, date) => api.get(`/firms/${firmId}/collection/agents`, { params: { date } }),
+  executiveSummary: (firmId, p) => api.get(`/firms/${firmId}/collection/executive-summary`, { params: p }),
+  listExecutiveDeposits: (firmId, p) => api.get(`/firms/${firmId}/collection/deposits`, { params: p }),
+  addExecutiveDeposit: (firmId, d) => api.post(`/firms/${firmId}/collection/deposits`, d),
   outstanding: (firmId) => api.get(`/firms/${firmId}/collection/outstanding`),
 };
 

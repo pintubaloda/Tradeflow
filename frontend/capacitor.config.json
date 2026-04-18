@@ -1,0 +1,10 @@
+{
+  "appId": "in.compucon.tradeflow",
+  "appName": "TradeFlow",
+  "webDir": "build",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
+

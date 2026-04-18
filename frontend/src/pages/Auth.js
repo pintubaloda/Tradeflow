@@ -24,17 +24,30 @@ function AuthLayout({ children, title, subtitle }) {
 }
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, complete2faLogin } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
   const [form, setForm] = useState({ email: '', password: '' });
+  const [otp, setOtp] = useState('');
+  const [backupCode, setBackupCode] = useState('');
+  const [twofaToken, setTwofaToken] = useState('');
+  const [step, setStep] = useState('password'); // password | twofa
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
+  const apkUrl =
+    (typeof window !== 'undefined' && window.__TRADEFLOW_CONFIG__ && window.__TRADEFLOW_CONFIG__.ANDROID_APK_URL) ||
+    process.env.REACT_APP_ANDROID_APK_URL ||
+    '';
+
   const validate = () => {
     const e = {};
-    if (!form.email) e.email = 'Email required';
-    if (!form.password) e.password = 'Password required';
+    if (step === 'password') {
+      if (!form.email) e.email = 'Email required';
+      if (!form.password) e.password = 'Password required';
+    } else {
+      if (!otp && !backupCode) e.otp = 'Enter OTP or backup code';
+    }
     return e;
   };
 
@@ -45,7 +58,18 @@ export function LoginPage() {
     setLoading(true);
     setErrors({});
     try {
-      await login(form.email, form.password);
+      if (step === 'password') {
+        const res = await login(form.email, form.password);
+        if (res?.requires2fa) {
+          setTwofaToken(res.twofaToken || '');
+          setStep('twofa');
+          toast.success('2FA required. Enter your verification code.');
+          return;
+        }
+        navigate('/');
+        return;
+      }
+      await complete2faLogin({ twofaToken, otp: otp || undefined, backupCode: backupCode || undefined });
       navigate('/');
     } catch (err) {
       const msg = err.response?.data?.error || 'Login failed';
@@ -60,18 +84,57 @@ export function LoginPage() {
       <form onSubmit={submit} className="space-y-4">
         <Input label="Email" type="email" placeholder="you@example.com"
           value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-          error={errors.email} autoFocus />
+          error={errors.email} autoFocus disabled={step === 'twofa'} />
         <Input label="Password" type="password" placeholder="••••••••"
           value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
-          error={errors.password} />
+          error={errors.password} disabled={step === 'twofa'} />
+        {step === 'twofa' && (
+          <>
+            <Input
+              label="Authenticator code"
+              inputMode="numeric"
+              placeholder="123456"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              error={errors.otp}
+              autoFocus
+            />
+            <div className="text-xs text-slate-400 -mt-2">
+              Or use a one-time backup code if you donâ€™t have your authenticator.
+            </div>
+            <Input
+              label="Backup code (optional)"
+              placeholder="A1B2C3D4E5"
+              value={backupCode}
+              onChange={(e) => setBackupCode(e.target.value)}
+            />
+            <Button
+              type="button"
+              variant="default"
+              onClick={() => { setStep('password'); setOtp(''); setBackupCode(''); setTwofaToken(''); }}
+              className="w-full"
+              disabled={loading}
+            >
+              Back
+            </Button>
+          </>
+        )}
         <Button type="submit" variant="primary" loading={loading} className="w-full mt-2">
-          Sign in
+          {step === 'password' ? 'Sign in' : 'Verify & sign in'}
         </Button>
       </form>
       <p className="text-center text-sm text-slate-500 mt-4">
         No account?{' '}
         <Link to="/register" className="text-violet-600 font-medium hover:underline">Create one free</Link>
       </p>
+      {apkUrl ? (
+        <p className="text-center text-xs text-slate-400 mt-2">
+          Need the Android app?{' '}
+          <a className="text-violet-600 font-medium hover:underline" href={apkUrl} target="_blank" rel="noreferrer">
+            Download APK
+          </a>
+        </p>
+      ) : null}
       <Toast toasts={toast.toasts} remove={toast.remove} />
     </AuthLayout>
   );

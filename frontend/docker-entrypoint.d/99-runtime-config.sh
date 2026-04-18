@@ -3,6 +3,7 @@ set -eu
 
 : "${TRADEFLOW_API_URL:=}"
 : "${TRADEFLOW_WS_URL:=}"
+: "${TRADEFLOW_ANDROID_APK_URL:=}"
 
 # For local Docker Compose, `/api` and `/ws` can be proxied by nginx.conf.
 # For Railway (separate services), set absolute URLs:
@@ -16,7 +17,7 @@ fi
 cat > /usr/share/nginx/html/runtime-config.js <<EOF
 window.__TRADEFLOW_CONFIG__ = {
   API_URL: "${TRADEFLOW_API_URL}",
-  WS_URL: "${TRADEFLOW_WS_URL}"
+  WS_URL: "${TRADEFLOW_WS_URL}",
+  ANDROID_APK_URL: "${TRADEFLOW_ANDROID_APK_URL}"
 };
 EOF
-

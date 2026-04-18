@@ -1,0 +1,72 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Build web
+        working-directory: frontend
+        env:
+          REACT_APP_API_URL: /api
+        run: npm run build
+
+      - name: Add Android platform (Capacitor)
+        working-directory: frontend
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Build debug APK
+        working-directory: frontend/android
+        run: ./gradlew assembleDebug
+
+      - name: Prepare APK artifact
+        run: |
+          mkdir -p dist
+          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk dist/tradeflow.apk
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tradeflow-apk
+          path: dist/tradeflow.apk
+
+      - name: Publish GitHub Release (latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-${{ github.run_number }}
+          name: Android build ${{ github.run_number }}
+          prerelease: true
+          files: dist/tradeflow.apk
+

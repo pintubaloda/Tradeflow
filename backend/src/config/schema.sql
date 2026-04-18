@@ -74,6 +74,12 @@ CREATE TABLE users (
   password_hash VARCHAR(255) NOT NULL,
   full_name VARCHAR(100) NOT NULL,
   phone VARCHAR(20),
+  -- 2FA (TOTP). Secrets stored encrypted at rest (see TWOFA_ENCRYPTION_KEY).
+  twofa_enabled BOOLEAN NOT NULL DEFAULT false,
+  twofa_secret_enc TEXT,
+  twofa_temp_secret_enc TEXT,
+  twofa_backup_codes_enc TEXT,
+  twofa_enabled_at TIMESTAMPTZ,
   role VARCHAR(30) NOT NULL DEFAULT 'staff', -- 'tenant_admin','firm_admin','accountant','collection_boy','viewer'
   is_active BOOLEAN NOT NULL DEFAULT true,
   last_login_at TIMESTAMPTZ,

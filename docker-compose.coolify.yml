@@ -40,6 +40,10 @@ services:
       # Demo seed is idempotent (skips if demo tenant exists). Disable after first run if you want.
       DEMO_SEED: ${DEMO_SEED:-true}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-Tradeflow@12345}
+      # 2FA (TOTP)
+      ENABLE_2FA: ${ENABLE_2FA:-false}
+      TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:-}
+      TWOFA_ISSUER: ${TWOFA_ISSUER:-TradeFlow}
     expose:
       - "4000"
 
@@ -55,6 +59,8 @@ services:
     environment:
       # Nginx proxies /api and /ws to this backend service name
       TRADEFLOW_BACKEND_ORIGIN: http://backend:4000
+      # Optional: Android app download link (shown on login page)
+      TRADEFLOW_ANDROID_APK_URL: ${TRADEFLOW_ANDROID_APK_URL:-https://github.com/pintubaloda/Tradeflow/releases/latest/download/tradeflow.apk}
     expose:
       - "80"
     # If Coolify UI does not expose domain/proxy fields for Compose resources,

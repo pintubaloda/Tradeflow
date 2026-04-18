@@ -3,5 +3,5 @@
 window.__TRADEFLOW_CONFIG__ = {
   API_URL: '/api',
   WS_URL: 'ws://localhost:4000/ws',
+  ANDROID_APK_URL: '',
 };
-

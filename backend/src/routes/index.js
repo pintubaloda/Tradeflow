@@ -27,9 +27,21 @@ router.post('/auth/login',
   body('password').notEmpty(),
   authCtrl.login
 );
+router.post('/auth/login-2fa',
+  body('twofaToken').notEmpty(),
+  body('otp').optional().isString(),
+  body('backupCode').optional().isString(),
+  authCtrl.login2fa
+);
 router.post('/auth/refresh', authCtrl.refresh);
 router.post('/auth/logout', authCtrl.logout);
 router.get('/auth/me', authenticate, authCtrl.me);
+
+// 2FA (TOTP) for current user
+router.post('/auth/2fa/setup', authenticate, authCtrl.twofaSetup);
+router.post('/auth/2fa/enable', authenticate, body('otp').notEmpty(), authCtrl.twofaEnable);
+router.post('/auth/2fa/disable', authenticate, authCtrl.twofaDisable);
+router.post('/auth/2fa/backup-codes/regenerate', authenticate, body('otp').notEmpty(), authCtrl.twofaRegenerateBackupCodes);
 
 // ── SUBSCRIPTIONS ─────────────────────────────────────────────
 router.get('/subscriptions/plans', subCtrl.listPlans);

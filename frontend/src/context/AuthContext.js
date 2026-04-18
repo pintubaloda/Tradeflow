@@ -64,12 +64,23 @@ export function AuthProvider({ children }) {
   // FIX BUG 11: login only sets state once via loadMe; don't double-set from login response
   const login = async (email, password) => {
     const { data } = await authAPI.login({ email, password });
+    if (data?.requires2fa) return data;
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
     // Persist intended firm before loadMe runs
     const firstFirm = (data.user.firms || [])[0];
     if (firstFirm) localStorage.setItem('currentFirmId', firstFirm.id);
     // Single source of truth: loadMe fetches full state
+    await loadMe();
+    return data;
+  };
+
+  const complete2faLogin = async ({ twofaToken, otp, backupCode }) => {
+    const { data } = await authAPI.login2fa({ twofaToken, otp, backupCode });
+    localStorage.setItem('accessToken', data.accessToken);
+    localStorage.setItem('refreshToken', data.refreshToken);
+    const firstFirm = (data.user.firms || [])[0];
+    if (firstFirm) localStorage.setItem('currentFirmId', firstFirm.id);
     await loadMe();
     return data;
   };
@@ -86,7 +97,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, firms, currentFirm, activeModules, loading,
-      login, logout, switchFirm, loadMe,
+      login, complete2faLogin, logout, switchFirm, loadMe,
       hasModule, isAdmin, isCollectionBoy,
     }}>
       {children}

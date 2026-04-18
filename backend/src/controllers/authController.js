@@ -3,11 +3,34 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { query, getClient } = require('../config/db');
 const { validationResult } = require('express-validator');
+const {
+  encryptV1,
+  decryptV1,
+  generateSecret,
+  generateQrDataUrl,
+  verifyTotp,
+  generateBackupCodes,
+  hashBackupCode,
+} = require('../utils/twoFactor');
 
 const generateTokens = (userId) => {
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '15m' });
   const refreshToken = crypto.randomBytes(40).toString('hex');
   return { accessToken, refreshToken };
+};
+
+const generateTwofaToken = (userId) => {
+  return jwt.sign({ userId, purpose: '2fa' }, process.env.JWT_SECRET, { expiresIn: '5m' });
+};
+
+const verifyTwofaToken = (token) => {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  if (!decoded || decoded.purpose !== '2fa' || !decoded.userId) {
+    const e = new Error('Invalid 2FA token');
+    e.status = 401;
+    throw e;
+  }
+  return decoded.userId;
 };
 
 // POST /api/auth/register
@@ -124,6 +147,12 @@ const login = async (req, res, next) => {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
+    // If 2FA is enabled, require a second step.
+    if (user.twofa_enabled) {
+      const twofaToken = generateTwofaToken(user.id);
+      return res.json({ requires2fa: true, twofaToken });
+    }
+
     await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
     // Get accessible firms
@@ -158,6 +187,195 @@ const login = async (req, res, next) => {
         firms: firms.rows,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/login-2fa
+const login2fa = async (req, res, next) => {
+  try {
+    const { twofaToken, otp, backupCode } = req.body || {};
+    if (!twofaToken) return res.status(401).json({ error: '2FA token required' });
+    if (!otp && !backupCode) return res.status(422).json({ error: 'OTP or backup code required' });
+
+    const userId = verifyTwofaToken(twofaToken);
+
+    const result = await query(
+      `SELECT u.*, t.is_active AS tenant_active, t.id AS tenant_id
+       FROM users u JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.id = $1`,
+      [userId]
+    );
+    if (!result.rows.length) return res.status(401).json({ error: 'Invalid credentials' });
+    const user = result.rows[0];
+    if (!user.is_active) return res.status(401).json({ error: 'Account deactivated' });
+    if (!user.tenant_active) return res.status(403).json({ error: 'Tenant account suspended' });
+    if (!user.twofa_enabled || !user.twofa_secret_enc) return res.status(400).json({ error: '2FA not enabled' });
+
+    const secret = decryptV1(user.twofa_secret_enc);
+
+    let verified = false;
+    if (otp) verified = verifyTotp({ secretBase32: secret, token: otp });
+    if (!verified && backupCode && user.twofa_backup_codes_enc) {
+      const hashes = JSON.parse(decryptV1(user.twofa_backup_codes_enc) || '[]');
+      const h = hashBackupCode(backupCode);
+      if (hashes.includes(h)) {
+        verified = true;
+        const nextHashes = hashes.filter((x) => x !== h);
+        await query('UPDATE users SET twofa_backup_codes_enc=$2 WHERE id=$1', [user.id, encryptV1(JSON.stringify(nextHashes))]);
+      }
+    }
+    if (!verified) return res.status(401).json({ error: 'Invalid verification code' });
+
+    await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
+
+    // Firms
+    let firms;
+    if (user.role === 'tenant_admin') {
+      firms = await query('SELECT id, name FROM firms WHERE tenant_id = $1 AND is_active = true', [user.tenant_id]);
+    } else {
+      firms = await query(
+        `SELECT f.id, f.name, ufa.role_in_firm, ufa.can_collect
+         FROM user_firm_access ufa JOIN firms f ON f.id = ufa.firm_id
+         WHERE ufa.user_id = $1 AND ufa.is_active = true AND f.is_active = true`,
+        [user.id]
+      );
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user.id);
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    await query(
+      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+      [user.id, tokenHash]
+    );
+
+    res.json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.full_name,
+        role: user.role,
+        tenantId: user.tenant_id,
+        firms: firms.rows,
+      },
+    });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') return res.status(401).json({ error: '2FA token expired' });
+    if (String(err.message || '').includes('TWOFA_ENCRYPTION_KEY')) return res.status(500).json({ error: '2FA not configured' });
+    next(err);
+  }
+};
+
+// POST /api/auth/2fa/setup
+const twofaSetup = async (req, res, next) => {
+  try {
+    if (process.env.ENABLE_2FA !== 'true') return res.status(404).json({ error: 'Not found' });
+
+    const { base32, otpauthUrl } = generateSecret({ email: req.user.email, issuer: process.env.TWOFA_ISSUER || 'TradeFlow' });
+    const qrDataUrl = await generateQrDataUrl(otpauthUrl);
+
+    await query(
+      'UPDATE users SET twofa_temp_secret_enc=$2 WHERE id=$1',
+      [req.user.id, encryptV1(base32)]
+    );
+
+    res.json({ ok: true, secretBase32: base32, otpauthUrl, qrDataUrl });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/2fa/enable
+const twofaEnable = async (req, res, next) => {
+  try {
+    if (process.env.ENABLE_2FA !== 'true') return res.status(404).json({ error: 'Not found' });
+
+    const { otp } = req.body || {};
+    if (!otp) return res.status(422).json({ error: 'OTP required' });
+
+    const uRes = await query('SELECT id, twofa_enabled, twofa_temp_secret_enc FROM users WHERE id=$1', [req.user.id]);
+    const u = uRes.rows[0];
+    if (!u) return res.status(401).json({ error: 'User not found' });
+    if (u.twofa_enabled) return res.status(409).json({ error: '2FA already enabled' });
+    if (!u.twofa_temp_secret_enc) return res.status(400).json({ error: 'Run setup first' });
+
+    const secret = decryptV1(u.twofa_temp_secret_enc);
+    const ok = verifyTotp({ secretBase32: secret, token: otp });
+    if (!ok) return res.status(401).json({ error: 'Invalid verification code' });
+
+    const backupCodes = generateBackupCodes(10);
+    const hashes = backupCodes.map(hashBackupCode);
+    await query(
+      `UPDATE users
+       SET twofa_enabled=true, twofa_secret_enc=$2, twofa_backup_codes_enc=$3, twofa_temp_secret_enc=NULL, twofa_enabled_at=NOW()
+       WHERE id=$1`,
+      [req.user.id, encryptV1(secret), encryptV1(JSON.stringify(hashes))]
+    );
+
+    res.json({ ok: true, backupCodes });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/2fa/disable
+const twofaDisable = async (req, res, next) => {
+  try {
+    if (process.env.ENABLE_2FA !== 'true') return res.status(404).json({ error: 'Not found' });
+
+    const { otp, backupCode } = req.body || {};
+    if (!otp && !backupCode) return res.status(422).json({ error: 'OTP or backup code required' });
+
+    const uRes = await query('SELECT id, twofa_enabled, twofa_secret_enc, twofa_backup_codes_enc FROM users WHERE id=$1', [req.user.id]);
+    const u = uRes.rows[0];
+    if (!u) return res.status(401).json({ error: 'User not found' });
+    if (!u.twofa_enabled || !u.twofa_secret_enc) return res.status(400).json({ error: '2FA not enabled' });
+
+    const secret = decryptV1(u.twofa_secret_enc);
+    let ok = false;
+    if (otp) ok = verifyTotp({ secretBase32: secret, token: otp });
+    if (!ok && backupCode && u.twofa_backup_codes_enc) {
+      const hashes = JSON.parse(decryptV1(u.twofa_backup_codes_enc) || '[]');
+      ok = hashes.includes(hashBackupCode(backupCode));
+    }
+    if (!ok) return res.status(401).json({ error: 'Invalid verification code' });
+
+    await query(
+      `UPDATE users
+       SET twofa_enabled=false, twofa_secret_enc=NULL, twofa_temp_secret_enc=NULL, twofa_backup_codes_enc=NULL, twofa_enabled_at=NULL
+       WHERE id=$1`,
+      [req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/auth/2fa/backup-codes/regenerate
+const twofaRegenerateBackupCodes = async (req, res, next) => {
+  try {
+    if (process.env.ENABLE_2FA !== 'true') return res.status(404).json({ error: 'Not found' });
+
+    const { otp } = req.body || {};
+    if (!otp) return res.status(422).json({ error: 'OTP required' });
+
+    const uRes = await query('SELECT id, twofa_enabled, twofa_secret_enc FROM users WHERE id=$1', [req.user.id]);
+    const u = uRes.rows[0];
+    if (!u) return res.status(401).json({ error: 'User not found' });
+    if (!u.twofa_enabled || !u.twofa_secret_enc) return res.status(400).json({ error: '2FA not enabled' });
+
+    const secret = decryptV1(u.twofa_secret_enc);
+    const ok = verifyTotp({ secretBase32: secret, token: otp });
+    if (!ok) return res.status(401).json({ error: 'Invalid verification code' });
+
+    const backupCodes = generateBackupCodes(10);
+    const hashes = backupCodes.map(hashBackupCode);
+    await query('UPDATE users SET twofa_backup_codes_enc=$2 WHERE id=$1', [req.user.id, encryptV1(JSON.stringify(hashes))]);
+    res.json({ ok: true, backupCodes });
   } catch (err) {
     next(err);
   }
@@ -247,6 +465,7 @@ const me = async (req, res, next) => {
         fullName: req.user.full_name,
         role: req.user.role,
         tenantId: req.user.tenant_id,
+        twofaEnabled: !!req.user.twofa_enabled,
       },
       firms: firms.rows,
       activeModules: modules.rows.map(m => m.module_key),
@@ -256,4 +475,15 @@ const me = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, refresh, logout, me };
+module.exports = {
+  register,
+  login,
+  login2fa,
+  refresh,
+  logout,
+  me,
+  twofaSetup,
+  twofaEnable,
+  twofaDisable,
+  twofaRegenerateBackupCodes,
+};

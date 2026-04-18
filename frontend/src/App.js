@@ -9,6 +9,7 @@ import MarketCollection from './pages/MarketCollection';
 import FirmsPage from './pages/Firms';
 import { TeamPage, SubscriptionsPage } from './pages/TeamAndSubscriptions';
 import Reports from './pages/Reports';
+import SecurityPage from './pages/Security';
 import { Spinner } from './components/common';
 
 function ProtectedRoute({ children }) {
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="/firms"        element={<ProtectedRoute><FirmsPage /></ProtectedRoute>} />
           <Route path="/users"        element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
           <Route path="/subscriptions" element={<ProtectedRoute><SubscriptionsPage /></ProtectedRoute>} />
+          <Route path="/security"     element={<ProtectedRoute><SecurityPage /></ProtectedRoute>} />
           <Route path="/reports"      element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

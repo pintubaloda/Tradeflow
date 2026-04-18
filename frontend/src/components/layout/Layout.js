@@ -12,6 +12,7 @@ const NAV = [
   { to: '/firms',         label: 'Firms',              icon: '🏢', admin: true },
   { to: '/users',         label: 'Team',               icon: '👥', admin: true },
   { to: '/subscriptions', label: 'Subscriptions',      icon: '⚡', admin: true },
+  { to: '/security',      label: 'Security',           icon: 'S',    always: true },
 ];
 
 function FirmSwitcher({ collapsed }) {

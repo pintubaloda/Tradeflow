@@ -122,6 +122,84 @@ function CollectionModal({ open, onClose, onSave, retailers, agents }) {
   );
 }
 
+function ExecutiveDepositModal({ open, onClose, onSave, executives, initialExecutiveId }) {
+  const [form, setForm] = useState({ executiveUserId: '', depositDate: today(), amount: '', paymentMode: 'cash', notes: '' });
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+  const toast = useToast();
+
+  useEffect(() => {
+    setForm({
+      executiveUserId: initialExecutiveId || '',
+      depositDate: today(),
+      amount: '',
+      paymentMode: 'cash',
+      notes: '',
+    });
+    setErrors({});
+  }, [open, initialExecutiveId]);
+
+  const f = (k) => ({ value: form[k], onChange: (e) => setForm((p) => ({ ...p, [k]: e.target.value })), error: errors[k] });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!form.executiveUserId) errs.executiveUserId = 'Select executive';
+    if (!form.amount || parseFloat(form.amount) <= 0) errs.amount = 'Enter amount';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setLoading(true);
+    try {
+      await onSave({
+        executiveUserId: form.executiveUserId,
+        depositDate: form.depositDate,
+        amount: parseFloat(form.amount),
+        paymentMode: form.paymentMode,
+        notes: form.notes,
+      });
+      toast.success('Deposit recorded');
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to record deposit');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Record Executive Deposit"
+      size="md"
+      footer={<>
+        <Button variant="default" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" loading={loading} onClick={submit}>Save</Button>
+      </>}
+    >
+      <form onSubmit={submit} className="space-y-3">
+        <Select label="Executive *" {...f('executiveUserId')}>
+          <option value="">â€” Select executive â€”</option>
+          {(executives || []).map((x) => (
+            <option key={x.id} value={x.id}>{x.full_name}</option>
+          ))}
+        </Select>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Date *" type="date" {...f('depositDate')} />
+          <Input label="Amount (â‚¹) *" type="number" min="0" step="0.01" prefix="â‚¹" placeholder="0.00" {...f('amount')} />
+        </div>
+        <Select label="Payment mode" {...f('paymentMode')}>
+          <option value="cash">Cash</option>
+          <option value="upi">UPI</option>
+          <option value="cheque">Cheque</option>
+          <option value="bank">Bank Transfer</option>
+        </Select>
+        <Input label="Notes" placeholder="Optional" {...f('notes')} />
+      </form>
+      <Toast toasts={toast.toasts} remove={toast.remove} />
+    </Modal>
+  );
+}
+
 function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -222,9 +300,9 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
     { header: 'Date', key: 'date', width: 12 },
     { header: 'Particulars', key: 'particulars', width: 24 },
     { header: 'Collected By', key: 'collectedBy', width: 18 },
-    { header: 'Debit (DR)', key: 'debit', width: 12, align: 'right' },
-    { header: 'Credit (CR)', key: 'credit', width: 12, align: 'right' },
-    { header: 'Balance', key: 'balance', width: 12, align: 'right' },
+    { header: 'Debit (DR)', key: 'debitStr', width: 12, align: 'right' },
+    { header: 'Credit (CR)', key: 'creditStr', width: 12, align: 'right' },
+    { header: 'Balance', key: 'balanceStr', width: 12, align: 'right' },
     { header: 'Mode', key: 'mode', width: 10 },
     { header: 'Notes', key: 'notes', width: 24 },
   ];
@@ -600,7 +678,7 @@ function OutstandingModal({ open, onClose, onSave, retailers }) {
 export default function MarketCollection() {
   const { user, currentFirm, hasModule, isAdmin } = useAuth();
   const toast = useToast();
-  const [tab, setTab] = useState('overview'); // overview | retailers | transactions
+  const [tab, setTab] = useState('overview'); // overview | retailers | transactions | executives
   const [retailers, setRetailers] = useState([]);
   const [outstanding, setOutstanding] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -614,6 +692,17 @@ export default function MarketCollection() {
   const [ledgerRetailer, setLedgerRetailer] = useState(null);
   const [searchRetailer, setSearchRetailer] = useState('');
   const [loadError, setLoadError] = useState(false);
+
+  const canViewExecutives = ['tenant_admin', 'firm_admin', 'accountant', 'viewer'].includes(user?.role);
+  const canRecordDeposits = ['tenant_admin', 'firm_admin', 'accountant'].includes(user?.role);
+  const [execFrom, setExecFrom] = useState(today());
+  const [execTo, setExecTo] = useState(today());
+  const [execLoading, setExecLoading] = useState(false);
+  const [execLoadError, setExecLoadError] = useState(false);
+  const [execSummary, setExecSummary] = useState([]);
+  const [execDeposits, setExecDeposits] = useState([]);
+  const [depositModal, setDepositModal] = useState(false);
+  const [depositExecId, setDepositExecId] = useState('');
 
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     if (!currentFirm) return;
@@ -638,6 +727,28 @@ export default function MarketCollection() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  const loadExecutives = useCallback(async ({ silent = false } = {}) => {
+    if (!currentFirm) return;
+    setExecLoadError(false);
+    if (!silent) setExecLoading(true);
+    try {
+      const [sRes, dRes] = await Promise.all([
+        collectionAPI.executiveSummary(currentFirm.id, { from: execFrom, to: execTo }),
+        collectionAPI.listExecutiveDeposits(currentFirm.id, { from: execFrom, to: execTo }),
+      ]);
+      setExecSummary(sRes.data.executives || []);
+      setExecDeposits(dRes.data.deposits || []);
+    } catch (_) {
+      setExecLoadError(true);
+    } finally {
+      if (!silent) setExecLoading(false);
+    }
+  }, [currentFirm, execFrom, execTo]);
+
+  useEffect(() => {
+    if (tab === 'executives' && canViewExecutives) loadExecutives();
+  }, [tab, canViewExecutives, loadExecutives]);
+
   const syncAllRef = React.useRef({ inFlight: false, lastAt: 0, timer: null });
   const scheduleLoadAll = useCallback(() => {
     const s = syncAllRef.current;
@@ -654,12 +765,29 @@ export default function MarketCollection() {
     s.timer = setTimeout(() => { s.timer = null; run(); }, minGap - elapsed);
   }, [loadAll]);
 
+  const syncExecRef = React.useRef({ inFlight: false, lastAt: 0, timer: null });
+  const scheduleLoadExecutives = useCallback(() => {
+    const s = syncExecRef.current;
+    const now = Date.now();
+    const minGap = 2500;
+    const run = async () => {
+      if (s.inFlight) return;
+      s.inFlight = true;
+      try { await loadExecutives({ silent: true }); } finally { s.lastAt = Date.now(); s.inFlight = false; }
+    };
+    const elapsed = now - s.lastAt;
+    if (elapsed >= minGap) { run(); return; }
+    if (s.timer) return;
+    s.timer = setTimeout(() => { s.timer = null; run(); }, minGap - elapsed);
+  }, [loadExecutives]);
+
   useWebSocket({
     tenantId: user?.tenantId,
     firmId: currentFirm?.id,
     enabled: !!currentFirm && hasModule('market_collection'),
     onMessage: (msg) => {
       if (['collection_added', 'collection_updated', 'collection_deleted'].includes(msg?.event)) scheduleLoadAll();
+      if (tab === 'executives' && ['collection_added', 'collection_updated', 'collection_deleted'].includes(msg?.event)) scheduleLoadExecutives();
     },
   });
 
@@ -754,6 +882,40 @@ export default function MarketCollection() {
     { key: 'payment_mode', label: 'Mode', render: v => <Badge color="gray">{paymentModeLabel(v)}</Badge> },
   ];
 
+  const execCols = [
+    { key: 'full_name', label: 'Executive', render: (v, r) => (
+      <div className="flex items-center gap-2.5">
+        <Avatar name={v} size="sm" />
+        <div>
+          <p className="font-medium text-slate-800 text-sm">{v}</p>
+          <p className="text-xs text-slate-400">{r.phone || 'â€”'}</p>
+        </div>
+      </div>
+    )},
+    { key: 'cash_collected', label: 'Cash collected', render: (v) => <span className="tabular-nums font-medium text-slate-700">{formatCurrency(v)}</span> },
+    { key: 'cash_deposited', label: 'Cash deposited', render: (v) => <span className="tabular-nums font-medium text-emerald-700">{formatCurrency(v)}</span> },
+    { key: 'cash_pending', label: 'Cash pending', render: (v) => (
+      <span className={`tabular-nums font-semibold ${parseFloat(v) > 0 ? 'text-red-600' : 'text-slate-600'}`}>{formatCurrency(v)}</span>
+    )},
+    { key: 'non_cash_collected', label: 'Non-cash', render: (v) => <span className="tabular-nums text-slate-600">{formatCurrency(v)}</span> },
+    { key: 'credit_added', label: 'Credit added', render: (v) => <span className="tabular-nums text-amber-700">{formatCurrency(v)}</span> },
+    { key: 'actions', label: '', render: (_, r) => (
+      canRecordDeposits ? (
+        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setDepositExecId(r.id); setDepositModal(true); }}>
+          Record deposit
+        </Button>
+      ) : null
+    )},
+  ];
+
+  const depositCols = [
+    { key: 'deposit_date', label: 'Date', render: (v) => formatDate(v) },
+    { key: 'executive_name', label: 'Executive' },
+    { key: 'amount', label: 'Amount', render: (v) => <span className="tabular-nums font-medium">{formatCurrency(v)}</span> },
+    { key: 'payment_mode', label: 'Mode', render: (v) => <Badge color="gray">{paymentModeLabel(v) || 'â€”'}</Badge> },
+    { key: 'notes', label: 'Notes', render: (v) => <span className="text-xs text-slate-400">{v || 'â€”'}</span> },
+  ];
+
   return (
     <div className="max-w-6xl mx-auto space-y-5">
       {/* Header */}
@@ -782,7 +944,7 @@ export default function MarketCollection() {
 
       {/* Tabs */}
       <div className="border-b border-slate-100">
-        {['overview', 'retailers', 'transactions'].map(t => (
+        {(['overview', 'retailers', 'transactions'].concat(canViewExecutives ? ['executives'] : [])).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-medium capitalize transition-colors border-b-2 mr-1 ${tab === t ? 'border-violet-600 text-violet-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
             {t === 'overview' ? '📊 Overview' : t === 'retailers' ? '🏪 Retailers' : '📄 Transactions'}
@@ -884,6 +1046,55 @@ export default function MarketCollection() {
               </div>
             </Card>
           )}
+
+          {tab === 'executives' && canViewExecutives && (
+            <div className="space-y-4">
+              <Card>
+                <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-800 text-sm">Executive Cash Summary</p>
+                    <p className="text-xs text-slate-400">Cash collected vs deposited (pending = to be submitted to office)</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="default" size="sm" onClick={() => loadExecutives()} disabled={execLoading}>Sync</Button>
+                    {canRecordDeposits && (
+                      <Button variant="primary" size="sm" onClick={() => { setDepositExecId(''); setDepositModal(true); }}>
+                        + Record deposit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="flex gap-2 mb-4">
+                    <Input type="date" value={execFrom} onChange={(e) => setExecFrom(e.target.value)} wrapperClass="flex-1" label="From" />
+                    <Input type="date" value={execTo} onChange={(e) => setExecTo(e.target.value)} wrapperClass="flex-1" label="To" />
+                    <Button variant="default" onClick={() => loadExecutives()} disabled={execLoading}>Filter</Button>
+                  </div>
+
+                  {execLoading ? (
+                    <div className="flex justify-center py-12"><Spinner size="lg" /></div>
+                  ) : execLoadError ? (
+                    <div className="flex flex-col items-center py-12 gap-3">
+                      <p className="text-slate-500 text-sm">Failed to load executive summary.</p>
+                      <Button size="sm" variant="default" onClick={() => loadExecutives()}>Retry</Button>
+                    </div>
+                  ) : (
+                    <Table columns={execCols} rows={execSummary} empty="No executives found" />
+                  )}
+                </div>
+              </Card>
+
+              <Card>
+                <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center justify-between">
+                  <p className="font-semibold text-slate-800 text-sm">Deposits (range)</p>
+                  <span className="text-xs text-slate-400">{execFrom} → {execTo}</span>
+                </div>
+                <div className="p-5">
+                  <Table columns={depositCols} rows={execDeposits} empty="No deposits in this range" />
+                </div>
+              </Card>
+            </div>
+          )}
         </>
       )}
 
@@ -891,6 +1102,13 @@ export default function MarketCollection() {
       <CollectionModal open={collectionModal} onClose={() => setCollectionModal(false)} onSave={handleAddCollection} retailers={retailers} agents={agents} />
       <OutstandingModal open={outstandingModal} onClose={() => setOutstandingModal(false)} onSave={handleAddOutstanding} retailers={retailers} />
       <RetailerLedgerModal open={!!ledgerRetailer} onClose={() => setLedgerRetailer(null)} firmId={currentFirm?.id} retailer={ledgerRetailer} />
+      <ExecutiveDepositModal
+        open={depositModal}
+        onClose={() => setDepositModal(false)}
+        onSave={(d) => collectionAPI.addExecutiveDeposit(currentFirm.id, d).then(() => loadExecutives({ silent: true }))}
+        executives={execSummary}
+        initialExecutiveId={depositExecId}
+      />
       <Toast toasts={toast.toasts} remove={toast.remove} />
     </div>
   );

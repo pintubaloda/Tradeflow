@@ -13,6 +13,7 @@ const authenticate = async (req, res, next) => {
 
     const result = await query(
       `SELECT u.id, u.tenant_id, u.email, u.full_name, u.role, u.is_active,
+              u.twofa_enabled,
               t.is_active AS tenant_active, t.plan_id
        FROM users u
        JOIN tenants t ON t.id = u.tenant_id

@@ -291,9 +291,9 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
     { header: 'Date', key: 'date', width: 12 },
     { header: 'Particulars', key: 'particulars', width: 24 },
     { header: 'Ref', key: 'ref', width: 14 },
-    { header: 'Debit (DR)', key: 'debit', width: 12, align: 'right' },
-    { header: 'Credit (CR)', key: 'credit', width: 12, align: 'right' },
-    { header: 'Balance', key: 'balance', width: 12, align: 'right' },
+    { header: 'Debit (DR)', key: 'debitStr', width: 12, align: 'right' },
+    { header: 'Credit (CR)', key: 'creditStr', width: 12, align: 'right' },
+    { header: 'Balance', key: 'balanceStr', width: 12, align: 'right' },
     { header: 'Notes', key: 'notes', width: 28 },
   ];
 
