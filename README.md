@@ -111,14 +111,16 @@ If your server has **Coolify** installed (you wrote "collify" — assuming you m
 3) Add environment variables in Coolify:
    - `DB_PASSWORD` = strong password
    - `JWT_SECRET` = 32+ chars random string
-   - `FRONTEND_URL` = `https://<your-domain>` (no trailing slash)
-   - (optional demo) `DEMO_SEED=true`, `DEMO_PASSWORD=Tradeflow@12345`, `DISABLE_PAYMENT_GATE=true`
+   - `FRONTEND_URL` = `https://tradeflow.compucon.in` (or your domain; no trailing slash)
+   - (demo) `DEMO_PASSWORD=Tradeflow@12345` (or set your own)
+   - (optional) `DISABLE_PAYMENT_GATE=true` (lets you activate paid modules without `paymentConfirmed`)
 4) In Coolify, set the public domain **on the `frontend` service** (container port `80`).
 5) Deploy.
 
 Notes:
 - API + WebSocket are served from the same domain via nginx proxy (`/api` and `/ws`), so you avoid CORS issues.
 - Postgres schema is initialized automatically on first DB start via `backend/src/config/schema.sql`.
+- In `docker-compose.coolify.yml`, backend defaults to `AUTO_DB_INIT=true` and `DEMO_SEED=true` (idempotent). After your first successful login, set `DEMO_SEED=false` in backend env if you donâ€™t want demo data seeding enabled.
 - To auto-deploy on every GitHub push, enable **Auto Deploy** in Coolify for this project (creates/uses a GitHub webhook).
 
 ### Auto deploy via GitHub Actions (recommended fallback)

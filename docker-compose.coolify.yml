@@ -34,7 +34,12 @@ services:
       PORT: 4000
       NODE_ENV: production
       # Set this to your public frontend domain in Coolify env (no trailing slash)
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      FRONTEND_URL: ${FRONTEND_URL:-https://tradeflow.compucon.in}
+      # Safe to keep enabled: schema is applied only if missing.
+      AUTO_DB_INIT: ${AUTO_DB_INIT:-true}
+      # Demo seed is idempotent (skips if demo tenant exists). Disable after first run if you want.
+      DEMO_SEED: ${DEMO_SEED:-true}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-Tradeflow@12345}
     expose:
       - "4000"
 
@@ -55,4 +60,3 @@ services:
 
 volumes:
   pgdata:
-
