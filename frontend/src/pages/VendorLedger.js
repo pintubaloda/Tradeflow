@@ -6,6 +6,7 @@ import {
   StatCard, Card, EmptyState, useToast, Toast, Spinner, ConfirmDialog
 } from '../components/common';
 import { formatCurrency, formatDate, today, txnTypeColor, txnTypeLabel, debounce } from '../utils/helpers';
+import { buildVendorTallyRows, downloadLedgerXlsx, downloadLedgerPdf, shareLedgerPdf } from '../utils/ledgerExport';
 
 const TXN_TYPES = [
   { value: 'advance', label: 'Advance (1st payment — DR)' },
@@ -222,7 +223,7 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
   const [editTxn, setEditTxn] = useState(null);
   const [deleteTxn, setDeleteTxn] = useState(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [downloadFormat, setDownloadFormat] = useState('pdf'); // pdf | xls
+  const [downloadFormat, setDownloadFormat] = useState('pdf'); // pdf | xlsx
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const toast = useToast();
@@ -285,104 +286,58 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
   const ledgerTitle = `Ledger — ${vendor?.name || ''}`;
   const rangeLabel = `${from || 'All'} → ${to || 'All'}`;
 
-  const escapeCsv = (v) => {
-    if (v === null || v === undefined) return '';
-    const s = String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
+  const tallyRows = buildVendorTallyRows(data?.transactions || []);
+  const exportColumns = [
+    { header: 'Date', key: 'date', width: 12 },
+    { header: 'Particulars', key: 'particulars', width: 24 },
+    { header: 'Ref', key: 'ref', width: 14 },
+    { header: 'Debit (DR)', key: 'debit', width: 12, align: 'right' },
+    { header: 'Credit (CR)', key: 'credit', width: 12, align: 'right' },
+    { header: 'Balance', key: 'balance', width: 12, align: 'right' },
+    { header: 'Notes', key: 'notes', width: 28 },
+  ];
 
   const downloadXls = () => {
-    const rows = data?.transactions || [];
-    const header = ['Date','Type','Opening','DR','CR','Closing','Notes','By'];
-    const lines = [header.join(',')];
-    rows.forEach(r => {
-      const dr = (r.txn_type === 'advance' || r.txn_type === 'debit') ? r.amount : '';
-      const cr = (r.txn_type === 'credit') ? r.amount : '';
-      lines.push([
-        (r.txn_date || '').slice(0, 10),
-        txnTypeLabel(r.txn_type),
-        r.opening_balance,
-        dr,
-        cr,
-        r.closing_balance,
-        r.notes || '',
-        r.created_by_name || '',
-      ].map(escapeCsv).join(','));
+    downloadLedgerXlsx({
+      fileName: `${vendor?.name || 'vendor'}-ledger.xlsx`,
+      sheetName: 'Vendor Ledger',
+      columns: exportColumns,
+      rows: tallyRows,
     });
-    const blob = new Blob([lines.join('\n')], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const a = document.createElement('a');
-    const safeName = (vendor?.name || 'ledger').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${safeName}-ledger.xls`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
 
-  const downloadPdf = () => {
-    const rows = data?.transactions || [];
-    const w = window.open('', '_blank', 'noopener,noreferrer');
-    if (!w) { toast.error('Popup blocked. Allow popups to download PDF.'); return; }
-    const style = `
-      <style>
-        body{font-family:Inter,system-ui,Arial;margin:24px;color:#111827}
-        h1{font-size:16px;margin:0 0 6px}
-        .meta{font-size:12px;color:#6b7280;margin-bottom:14px}
-        table{width:100%;border-collapse:collapse;font-size:12px}
-        th,td{border-bottom:1px solid #e5e7eb;padding:8px 6px;text-align:left;vertical-align:top}
-        th{color:#6b7280;text-transform:uppercase;letter-spacing:.06em;font-size:10px}
-        .num{text-align:right;font-variant-numeric:tabular-nums}
-      </style>
-    `;
-    const htmlRows = rows.map(r => {
-      const dr = (r.txn_type === 'advance' || r.txn_type === 'debit') ? formatCurrency(r.amount) : '—';
-      const cr = (r.txn_type === 'credit') ? formatCurrency(r.amount) : '—';
-      const notes = (r.notes || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      return `
-        <tr>
-          <td>${formatDate(r.txn_date)}</td>
-          <td>${txnTypeLabel(r.txn_type)}</td>
-          <td class="num">${formatCurrency(r.opening_balance)}</td>
-          <td class="num">${dr}</td>
-          <td class="num">${cr}</td>
-          <td class="num">${formatCurrency(r.closing_balance)}</td>
-          <td>${notes}</td>
-        </tr>
-      `;
-    }).join('');
-
-    w.document.write(`
-      <html><head><title>${ledgerTitle}</title>${style}</head>
-      <body>
-        <h1>${ledgerTitle}</h1>
-        <div class="meta">${rangeLabel}</div>
-        <table>
-          <thead><tr>
-            <th>Date</th><th>Type</th><th class="num">Opening</th><th class="num">DR</th><th class="num">CR</th><th class="num">Closing</th><th>Notes</th>
-          </tr></thead>
-          <tbody>${htmlRows}</tbody>
-        </table>
-        <script>window.onload=()=>{window.print();}</script>
-      </body></html>
-    `);
-    w.document.close();
+  const downloadPdf = async () => {
+    try {
+      await downloadLedgerPdf({
+        fileName: `${vendor?.name || 'vendor'}-ledger.pdf`,
+        title: ledgerTitle,
+        metaLines: [rangeLabel],
+        columns: exportColumns,
+        rows: tallyRows,
+      });
+    } catch (_) {
+      toast.error('Failed to generate PDF');
+    }
   };
 
   const shareLedger = async () => {
-    const text = `${ledgerTitle}\n${rangeLabel}`;
     try {
-      if (navigator.share) {
-        await navigator.share({ title: ledgerTitle, text, url: window.location.href });
-        return;
-      }
+      const ok = await shareLedgerPdf({
+        fileName: `${vendor?.name || 'vendor'}-ledger.pdf`,
+        title: ledgerTitle,
+        text: rangeLabel,
+        metaLines: [rangeLabel],
+        columns: exportColumns,
+        rows: tallyRows,
+      });
+      if (ok) return;
+
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(`${text}\n${window.location.href}`);
-        toast.success('Ledger link copied');
+        await navigator.clipboard.writeText(`${ledgerTitle}\n${rangeLabel}\n${window.location.href}`);
+        toast.success('Ledger link copied (PDF share not supported on this device)');
         return;
       }
-      toast.info(text);
+      toast.info(`${ledgerTitle}\n${rangeLabel}`);
     } catch (_) {
       toast.error('Share failed');
     }
@@ -467,13 +422,13 @@ function LedgerModal({ open, onClose, vendor, firmId }) {
           <Button variant="default" onClick={() => setDownloadOpen(false)}>Cancel</Button>
           <Button variant="primary" onClick={() => {
             setDownloadOpen(false);
-            if (downloadFormat === 'xls') downloadXls();
+            if (downloadFormat === 'xlsx') downloadXls();
             else downloadPdf();
           }}>Download</Button>
         </>}>
         <Select label="Format" value={downloadFormat} onChange={e => setDownloadFormat(e.target.value)}>
           <option value="pdf">PDF</option>
-          <option value="xls">XLS</option>
+          <option value="xlsx">Excel (.xlsx)</option>
         </Select>
         <p className="text-xs text-slate-400 mt-2">PDF uses the browser print dialog.</p>
       </Modal>

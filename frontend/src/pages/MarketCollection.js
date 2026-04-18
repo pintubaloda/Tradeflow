@@ -7,6 +7,7 @@ import {
 } from '../components/common';
 import { formatCurrency, formatDate, today, paymentModeLabel, debounce } from '../utils/helpers';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { buildRetailerTallyRows, downloadLedgerXlsx, downloadLedgerPdf, shareLedgerPdf } from '../utils/ledgerExport';
 
 function RetailerModal({ open, onClose, onSave, initial }) {
   const [form, setForm] = useState({ name: '', ownerName: '', phone: '', address: '', area: '', creditLimit: '' });
@@ -138,7 +139,7 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
   const [editForm, setEditForm] = useState({ txnDate: today(), creditAmount: '0', collectedAmount: '0', paymentMode: 'cash', referenceNo: '', notes: '' });
   const [deleteTxn, setDeleteTxn] = useState(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [downloadFormat, setDownloadFormat] = useState('pdf'); // pdf | xls
+  const [downloadFormat, setDownloadFormat] = useState('pdf'); // pdf | xlsx
   const toast = useToast();
   const lastErrorAtRef = React.useRef(0);
   const syncRef = React.useRef({ inFlight: false, lastAt: 0, timer: null });
@@ -216,99 +217,59 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
   const ledgerTitle = `Retailer Ledger — ${retailer?.name || ''}`;
   const rangeLabel = `${from || 'All'} → ${to || 'All'}`;
 
-  const escapeCsv = (v) => {
-    if (v === null || v === undefined) return '';
-    const s = String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
+  const tallyRows = buildRetailerTallyRows(txns);
+  const exportColumns = [
+    { header: 'Date', key: 'date', width: 12 },
+    { header: 'Particulars', key: 'particulars', width: 24 },
+    { header: 'Collected By', key: 'collectedBy', width: 18 },
+    { header: 'Debit (DR)', key: 'debit', width: 12, align: 'right' },
+    { header: 'Credit (CR)', key: 'credit', width: 12, align: 'right' },
+    { header: 'Balance', key: 'balance', width: 12, align: 'right' },
+    { header: 'Mode', key: 'mode', width: 10 },
+    { header: 'Notes', key: 'notes', width: 24 },
+  ];
 
   const downloadXls = () => {
-    const rows = txns || [];
-    const header = ['Date', 'Collected By', 'Credit', 'Collected', 'Balance', 'Mode', 'Notes'];
-    const lines = [header.join(',')];
-    rows.forEach((r) => {
-      lines.push([
-        (r.txn_date || '').slice(0, 10),
-        r.collector_name || '',
-        r.credit_amount || '',
-        r.collected_amount || '',
-        r.outstanding_after || '',
-        paymentModeLabel(r.payment_mode) || '',
-        r.notes || '',
-      ].map(escapeCsv).join(','));
+    downloadLedgerXlsx({
+      fileName: `${retailer?.name || 'retailer'}-ledger.xlsx`,
+      sheetName: 'Retailer Ledger',
+      columns: exportColumns,
+      rows: tallyRows,
     });
-    const blob = new Blob([lines.join('\n')], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const a = document.createElement('a');
-    const safeName = (retailer?.name || 'retailer-ledger').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${safeName}-ledger.xls`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
 
-  const downloadPdf = () => {
-    const rows = txns || [];
-    const w = window.open('', '_blank', 'noopener,noreferrer');
-    if (!w) { toast.error('Popup blocked. Allow popups to download PDF.'); return; }
-    const style = `
-      <style>
-        body{font-family:Inter,system-ui,Arial;margin:24px;color:#111827}
-        h1{font-size:16px;margin:0 0 6px}
-        .meta{font-size:12px;color:#6b7280;margin-bottom:14px}
-        table{width:100%;border-collapse:collapse;font-size:12px}
-        th,td{border-bottom:1px solid #e5e7eb;padding:8px 6px;text-align:left;vertical-align:top}
-        th{color:#6b7280;text-transform:uppercase;letter-spacing:.06em;font-size:10px}
-        .num{text-align:right;font-variant-numeric:tabular-nums}
-      </style>
-    `;
-    const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const htmlRows = rows.map((r) => {
-      return `
-        <tr>
-          <td>${formatDate(r.txn_date)}</td>
-          <td>${esc(r.collector_name || '')}</td>
-          <td class="num">${(parseFloat(r.credit_amount) || 0) > 0 ? formatCurrency(r.credit_amount) : '—'}</td>
-          <td class="num">${(parseFloat(r.collected_amount) || 0) > 0 ? formatCurrency(r.collected_amount) : '—'}</td>
-          <td class="num">${formatCurrency(r.outstanding_after)}</td>
-          <td>${paymentModeLabel(r.payment_mode) || '—'}</td>
-          <td>${esc(r.notes || '')}</td>
-        </tr>
-      `;
-    }).join('');
-
-    w.document.write(`
-      <html><head><title>${ledgerTitle}</title>${style}</head>
-      <body>
-        <h1>${ledgerTitle}</h1>
-        <div class="meta">${rangeLabel}</div>
-        <table>
-          <thead><tr>
-            <th>Date</th><th>Collected By</th><th class="num">Credit</th><th class="num">Collected</th><th class="num">Balance</th><th>Mode</th><th>Notes</th>
-          </tr></thead>
-          <tbody>${htmlRows}</tbody>
-        </table>
-        <script>window.onload=()=>{window.print();}</script>
-      </body></html>
-    `);
-    w.document.close();
+  const downloadPdf = async () => {
+    try {
+      await downloadLedgerPdf({
+        fileName: `${retailer?.name || 'retailer'}-ledger.pdf`,
+        title: ledgerTitle,
+        metaLines: [rangeLabel],
+        columns: exportColumns,
+        rows: tallyRows,
+      });
+    } catch (_) {
+      toast.error('Failed to generate PDF');
+    }
   };
 
   const shareLedger = async () => {
-    const text = `${ledgerTitle}\n${rangeLabel}`;
     try {
-      if (navigator.share) {
-        await navigator.share({ title: ledgerTitle, text, url: window.location.href });
-        return;
-      }
+      const ok = await shareLedgerPdf({
+        fileName: `${retailer?.name || 'retailer'}-ledger.pdf`,
+        title: ledgerTitle,
+        text: rangeLabel,
+        metaLines: [rangeLabel],
+        columns: exportColumns,
+        rows: tallyRows,
+      });
+      if (ok) return;
+
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(`${text}\n${window.location.href}`);
-        toast.success('Ledger link copied');
+        await navigator.clipboard.writeText(`${ledgerTitle}\n${rangeLabel}\n${window.location.href}`);
+        toast.success('Ledger link copied (PDF share not supported on this device)');
         return;
       }
-      toast.info(text);
+      toast.info(`${ledgerTitle}\n${rangeLabel}`);
     } catch (_) {
       toast.error('Share failed');
     }
@@ -420,14 +381,30 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
 
   const cols = [
     { key: 'txn_date', label: 'Date', render: v => formatDate(v) },
+    {
+      key: '_particulars',
+      label: 'Particulars',
+      render: (_, r) => {
+        const dr = parseFloat(r.credit_amount) || 0;
+        const cr = parseFloat(r.collected_amount) || 0;
+        const p = dr > 0 && cr === 0 ? 'Outstanding Added' : cr > 0 && dr === 0 ? 'Collection Received' : 'Ledger Entry';
+        return <span className="text-slate-700">{p}</span>;
+      },
+    },
     { key: 'collector_name', label: 'Collected by', render: (v) => (
       <div className="flex items-center gap-1.5"><Avatar name={v} size="sm" /><span>{v}</span></div>
     )},
-    { key: 'credit_amount', label: 'Credit', render: v => (parseFloat(v) || 0) > 0 ? <span className="text-amber-600 tabular-nums">{formatCurrency(v)}</span> : '—' },
-    { key: 'collected_amount', label: 'Collected', render: v => (parseFloat(v) || 0) > 0 ? <span className="text-emerald-600 font-semibold tabular-nums">{formatCurrency(v)}</span> : '—' },
-    { key: 'outstanding_after', label: 'Balance', render: v => (
-      <span className={`tabular-nums font-medium ${parseFloat(v) > 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatCurrency(v)}</span>
-    )},
+    { key: 'credit_amount', label: 'DR', render: v => (parseFloat(v) || 0) > 0 ? <span className="text-amber-600 tabular-nums">{formatCurrency(v)}</span> : '—' },
+    { key: 'collected_amount', label: 'CR', render: v => (parseFloat(v) || 0) > 0 ? <span className="text-emerald-600 font-semibold tabular-nums">{formatCurrency(v)}</span> : '—' },
+    { key: 'outstanding_after', label: 'Balance', render: (v) => {
+      const n = parseFloat(v) || 0;
+      const suffix = n >= 0 ? 'Dr' : 'Cr';
+      return (
+        <span className={`tabular-nums font-medium ${n > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+          {formatCurrency(Math.abs(n))} {suffix}
+        </span>
+      );
+    }},
     { key: 'payment_mode', label: 'Mode', render: v => <Badge color="gray">{paymentModeLabel(v)}</Badge> },
     { key: 'notes', label: 'Notes', render: v => <span className="text-slate-400 text-xs">{v || '—'}</span> },
     {
@@ -499,14 +476,14 @@ function RetailerLedgerModal({ open, onClose, firmId, retailer }) {
           <Button variant="default" onClick={() => setDownloadOpen(false)}>Cancel</Button>
           <Button variant="primary" onClick={() => {
             setDownloadOpen(false);
-            if (downloadFormat === 'xls') downloadXls();
+            if (downloadFormat === 'xlsx') downloadXls();
             else downloadPdf();
           }}>Download</Button>
         </>}
       >
         <Select label="Format" value={downloadFormat} onChange={e => setDownloadFormat(e.target.value)}>
           <option value="pdf">PDF</option>
-          <option value="xls">XLS</option>
+          <option value="xlsx">Excel (.xlsx)</option>
         </Select>
         <p className="text-xs text-slate-400 mt-2">PDF uses the browser print dialog.</p>
       </Modal>
