@@ -142,6 +142,36 @@ router.get('/firms/:firmId/collection/agents',
   authenticate, requireFirmAccess, requireModule('market_collection'),
   collectionCtrl.getAgentsSummary
 );
+router.get('/firms/:firmId/collection/executive-summary',
+  authenticate,
+  requireFirmAccess,
+  requireModule('market_collection'),
+  requireRole('tenant_admin', 'firm_admin', 'accountant', 'viewer'),
+  query('from').optional().isISO8601({ strict: true, strictSeparator: true }),
+  query('to').optional().isISO8601({ strict: true, strictSeparator: true }),
+  collectionCtrl.getExecutiveCashSummary
+);
+router.get('/firms/:firmId/collection/deposits',
+  authenticate,
+  requireFirmAccess,
+  requireModule('market_collection'),
+  requireRole('tenant_admin', 'firm_admin', 'accountant', 'viewer'),
+  query('from').optional().isISO8601({ strict: true, strictSeparator: true }),
+  query('to').optional().isISO8601({ strict: true, strictSeparator: true }),
+  query('executiveUserId').optional().isUUID(),
+  collectionCtrl.listExecutiveDeposits
+);
+router.post('/firms/:firmId/collection/deposits',
+  authenticate,
+  requireFirmAccess,
+  requireModule('market_collection'),
+  requireRole('tenant_admin', 'firm_admin', 'accountant'),
+  body('executiveUserId').isUUID(),
+  body('depositDate').isDate(),
+  body('amount').isFloat({ min: 0.01 }),
+  body('paymentMode').optional().isIn(['cash','upi','cheque','bank']),
+  collectionCtrl.addExecutiveDeposit
+);
 router.get('/firms/:firmId/collection/outstanding',
   authenticate, requireFirmAccess, requireModule('market_collection'),
   collectionCtrl.getRetailerOutstanding

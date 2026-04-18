@@ -166,6 +166,24 @@ CREATE TABLE collection_transactions (
 );
 
 -- ============================================================
+-- MODULE 2B: COLLECTION EXECUTIVE CASH DEPOSITS (OFFICE SETTLEMENT)
+-- ============================================================
+-- When a collection executive collects cash in the market, it remains "pending"
+-- until they deposit the cash back to office and an admin/accountant records it.
+CREATE TABLE executive_cash_deposits (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+  executive_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  deposit_date DATE NOT NULL,
+  amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  payment_mode VARCHAR(20) NOT NULL DEFAULT 'cash', -- typically cash; allow others for bookkeeping
+  reference_no VARCHAR(50),
+  notes TEXT,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
 -- AUDIT LOG
 -- ============================================================
 CREATE TABLE audit_logs (
@@ -209,6 +227,9 @@ CREATE INDEX idx_retailers_firm ON retailers(firm_id);
 CREATE INDEX idx_collection_firm ON collection_transactions(firm_id);
 CREATE INDEX idx_collection_retailer ON collection_transactions(retailer_id);
 CREATE INDEX idx_collection_collector ON collection_transactions(collected_by);
+CREATE INDEX idx_exec_dep_firm ON executive_cash_deposits(firm_id);
+CREATE INDEX idx_exec_dep_exec ON executive_cash_deposits(executive_user_id);
+CREATE INDEX idx_exec_dep_date ON executive_cash_deposits(deposit_date);
 CREATE INDEX idx_audit_tenant ON audit_logs(tenant_id);
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 

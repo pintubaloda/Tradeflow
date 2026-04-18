@@ -438,6 +438,120 @@ const getAgentsSummary = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// POST /api/firms/:firmId/collection/deposits
+// Record office settlement for a collection executive (cash deposit).
+const addExecutiveDeposit = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
+
+    const { executiveUserId, depositDate, amount, paymentMode, referenceNo, notes } = req.body;
+
+    // Ensure executive has collection access in this firm
+    const access = await query(
+      `SELECT 1 FROM user_firm_access WHERE firm_id=$1 AND user_id=$2 AND can_collect=true AND is_active=true`,
+      [req.firmId, executiveUserId]
+    );
+    if (!access.rows.length) return res.status(400).json({ error: 'User is not a collection executive for this firm' });
+
+    const result = await query(
+      `INSERT INTO executive_cash_deposits
+        (firm_id, executive_user_id, deposit_date, amount, payment_mode, reference_no, notes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [
+        req.firmId,
+        executiveUserId,
+        depositDate,
+        parseFloat(amount) || 0,
+        paymentMode || 'cash',
+        referenceNo || null,
+        notes || null,
+        req.user.id,
+      ]
+    );
+
+    if (req.wsBroadcast) {
+      req.wsBroadcast(req.user.tenant_id, req.firmId, {
+        event: 'executive_deposit_added',
+        data: result.rows[0],
+      });
+    }
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) { next(err); }
+};
+
+// GET /api/firms/:firmId/collection/deposits?from&to&executiveUserId
+const listExecutiveDeposits = async (req, res, next) => {
+  try {
+    const { from, to, executiveUserId } = req.query;
+    const params = [req.firmId];
+    let where = 'd.firm_id=$1';
+    if (from) { params.push(from); where += ` AND d.deposit_date >= $${params.length}`; }
+    if (to) { params.push(to); where += ` AND d.deposit_date <= $${params.length}`; }
+    if (executiveUserId) { params.push(executiveUserId); where += ` AND d.executive_user_id = $${params.length}`; }
+
+    const result = await query(
+      `SELECT d.*, u.full_name AS executive_name, cb.full_name AS created_by_name
+       FROM executive_cash_deposits d
+       JOIN users u ON u.id = d.executive_user_id
+       LEFT JOIN users cb ON cb.id = d.created_by
+       WHERE ${where}
+       ORDER BY d.deposit_date DESC, d.created_at DESC`,
+      params
+    );
+    res.json({ deposits: result.rows });
+  } catch (err) { next(err); }
+};
+
+// GET /api/firms/:firmId/collection/executive-summary?from&to
+// Returns executive-wise cash collected vs deposited and pending cash.
+const getExecutiveCashSummary = async (req, res, next) => {
+  try {
+    const from = req.query.from || new Date().toISOString().split('T')[0];
+    const to = req.query.to || from;
+
+    const result = await query(
+      `WITH execs AS (
+        SELECT u.id, u.full_name, u.phone
+        FROM user_firm_access ufa
+        JOIN users u ON u.id = ufa.user_id
+        WHERE ufa.firm_id=$1 AND ufa.can_collect=true AND ufa.is_active=true
+      ),
+      c AS (
+        SELECT ct.collected_by AS executive_user_id,
+          COALESCE(SUM(CASE WHEN ct.payment_mode='cash' THEN ct.collected_amount ELSE 0 END),0) AS cash_collected,
+          COALESCE(SUM(CASE WHEN ct.payment_mode<>'cash' THEN ct.collected_amount ELSE 0 END),0) AS non_cash_collected,
+          COALESCE(SUM(ct.credit_amount),0) AS credit_added
+        FROM collection_transactions ct
+        WHERE ct.firm_id=$1 AND ct.txn_date BETWEEN $2 AND $3
+        GROUP BY ct.collected_by
+      ),
+      d AS (
+        SELECT executive_user_id,
+          COALESCE(SUM(CASE WHEN payment_mode='cash' THEN amount ELSE 0 END),0) AS cash_deposited
+        FROM executive_cash_deposits
+        WHERE firm_id=$1 AND deposit_date BETWEEN $2 AND $3
+        GROUP BY executive_user_id
+      )
+      SELECT e.id, e.full_name, e.phone,
+        COALESCE(c.cash_collected,0) AS cash_collected,
+        COALESCE(d.cash_deposited,0) AS cash_deposited,
+        (COALESCE(c.cash_collected,0) - COALESCE(d.cash_deposited,0)) AS cash_pending,
+        COALESCE(c.non_cash_collected,0) AS non_cash_collected,
+        COALESCE(c.credit_added,0) AS credit_added
+      FROM execs e
+      LEFT JOIN c ON c.executive_user_id = e.id
+      LEFT JOIN d ON d.executive_user_id = e.id
+      ORDER BY cash_pending DESC, cash_collected DESC, e.full_name ASC`,
+      [req.firmId, from, to]
+    );
+
+    res.json({ from, to, executives: result.rows });
+  } catch (err) { next(err); }
+};
+
 // GET /api/firms/:firmId/collection/retailer-outstanding
 const getRetailerOutstanding = async (req, res, next) => {
   try {
@@ -453,4 +567,17 @@ const getRetailerOutstanding = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { listRetailers, createRetailer, updateRetailer, listCollections, addCollection, updateCollection, deleteCollection, getAgentsSummary, getRetailerOutstanding };
+module.exports = {
+  listRetailers,
+  createRetailer,
+  updateRetailer,
+  listCollections,
+  addCollection,
+  updateCollection,
+  deleteCollection,
+  getAgentsSummary,
+  getRetailerOutstanding,
+  addExecutiveDeposit,
+  listExecutiveDeposits,
+  getExecutiveCashSummary,
+};
