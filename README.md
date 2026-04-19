@@ -102,6 +102,22 @@ Seed options:
 
 ---
 
+## 2FA (TOTP)
+
+TradeFlow supports authenticator-app 2FA (Google Authenticator / Microsoft Authenticator).
+
+### Enable (server)
+- Backend env:
+  - `ENABLE_2FA=true`
+  - `TWOFA_ENCRYPTION_KEY=<32+ chars random>` (required; encrypts secrets at rest)
+  - `TWOFA_ISSUER=TradeFlow` (optional)
+
+### Use (UI)
+- Go to **Security** and enable 2FA for your user.
+- Login becomes 2-step (password → OTP/backup-code).
+
+---
+
 ## Deploy on Coolify (Self-hosted)
 
 If your server has **Coolify** installed (you wrote "collify" — assuming you mean Coolify), deploy the whole stack using Docker Compose.
@@ -114,6 +130,8 @@ If your server has **Coolify** installed (you wrote "collify" — assuming you m
    - `JWT_SECRET` = 32+ chars random string
    - `FRONTEND_URL` = `https://tradeflow.compucon.in` (or your domain; no trailing slash)
    - `FRONTEND_DOMAIN` = `tradeflow.compucon.in` (optional; used for Traefik labels when deploying via Compose)
+   - (2FA) `ENABLE_2FA=true` and `TWOFA_ENCRYPTION_KEY=<random>` (optional)
+   - (Android) `TRADEFLOW_ANDROID_APK_URL=<public-apk-url>` (optional; shows “Download APK” on login)
    - (demo) `DEMO_PASSWORD=Tradeflow@12345` (or set your own)
    - (optional) `DISABLE_PAYMENT_GATE=true` (lets you activate paid modules without `paymentConfirmed`)
 4) In Coolify, set the public domain **on the `frontend` service** (container port `80`).
@@ -122,6 +140,7 @@ If your server has **Coolify** installed (you wrote "collify" — assuming you m
 Notes:
 - API + WebSocket are served from the same domain via nginx proxy (`/api` and `/ws`), so you avoid CORS issues.
 - Postgres schema is initialized automatically on first DB start via `backend/src/config/schema.sql`.
+- For upgrades on an existing DB, backend runs an idempotent migration on startup (adds new columns/tables safely).
 - In `docker-compose.coolify.yml`, backend defaults to `AUTO_DB_INIT=true` and `DEMO_SEED=true` (idempotent). After your first successful login, set `DEMO_SEED=false` in backend env if you donâ€™t want demo data seeding enabled.
 - To auto-deploy on every GitHub push, enable **Auto Deploy** in Coolify for this project (creates/uses a GitHub webhook).
 
