@@ -11,6 +11,7 @@ const errorHandler = require('./middleware/errorHandler');
 const wsManager = require('./utils/wsManager');
 const seedDemo = require('./utils/seedDemo');
 const initDb = require('./utils/initDb');
+const migrateDb = require('./utils/migrateDb');
 const { pool } = require('./config/db');
 
 // ── STARTUP VALIDATION ────────────────────────────────────────
@@ -117,6 +118,7 @@ wsManager.init(server);
 const PORT = process.env.PORT || 4000;
 const bootstrap = async () => {
   await initDb();
+  await migrateDb();
   await seedDemo();
   server.listen(PORT, () => console.log(`TradeFlow API running on :${PORT} [${isProd ? 'production' : 'development'}]`));
 };

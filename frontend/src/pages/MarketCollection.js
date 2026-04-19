@@ -947,7 +947,7 @@ export default function MarketCollection() {
         {(['overview', 'retailers', 'transactions'].concat(canViewExecutives ? ['executives'] : [])).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2.5 text-sm font-medium capitalize transition-colors border-b-2 mr-1 ${tab === t ? 'border-violet-600 text-violet-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-            {t === 'overview' ? '📊 Overview' : t === 'retailers' ? '🏪 Retailers' : '📄 Transactions'}
+            {t === 'overview' ? '📊 Overview' : t === 'retailers' ? '🏪 Retailers' : t === 'transactions' ? '📄 Transactions' : '👥 Executives'}
           </button>
         ))}
       </div>
