@@ -30,6 +30,10 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://tradeflow:${DB_PASSWORD:-changeme}@postgres:5432/tradeflow
+      # Force-disable SSL for local Compose Postgres unless you explicitly enable it.
+      # (Some platforms set PGSSLMODE=require globally.)
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      PGSSLMODE: ${PGSSLMODE:-disable}
       JWT_SECRET: ${JWT_SECRET:-change_this_32_char_secret_in_prod}
       PORT: 4000
       NODE_ENV: production
@@ -40,6 +44,9 @@ services:
       # Demo seed is idempotent (skips if demo tenant exists). Disable after first run if you want.
       DEMO_SEED: ${DEMO_SEED:-true}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-Tradeflow@12345}
+      # Optional: expose a one-time demo seed endpoint (keep disabled in prod unless needed).
+      DEMO_SEED_ENDPOINT: ${DEMO_SEED_ENDPOINT:-false}
+      SEED_TOKEN: ${SEED_TOKEN:-}
       # 2FA (TOTP)
       ENABLE_2FA: ${ENABLE_2FA:-false}
       TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:-}
